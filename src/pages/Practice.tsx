@@ -1,268 +1,398 @@
+// allow: SIZE_OK — page-local session state machine; shared renderers live in components/.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent, JSX } from 'react';
+import type { Attempt, Difficulty, Problem, Subject } from '../domain/types';
+import { randomSeed } from '../domain/rng';
 import { generateProblem } from '../generators';
-import type { Attempt, Difficulty, Problem, Subject } from '../types';
-import { adaptiveDifficulty, PACE_SEC_PER_Q } from '../stats/engine';
+import { paceSecPerQ, summarize } from '../stats/engine';
 import { loadPersisted, loadSettings, saveAttempt } from '../storage/store';
-import { randomSeed } from '../utils/rng';
-import { Figure } from '../components/Figure';
-import { SUBJECT_LABEL } from './Home';
+import { ChoiceGrid } from '../components/ChoiceGrid';
+import { QuestionFigures } from '../components/QuestionFigures';
+import { buildChoiceItems } from '../components/quizChoices';
+import { LiveRegion } from '../components/LiveRegion';
+import {
+  buildAttempt,
+  correctLabel,
+  formatClock,
+  isButtonElement,
+  isTypingTarget,
+  nextDifficulty,
+  TIMER_MILESTONES,
+} from '../features/quizHelpers';
+import { SUBJECT_LABEL } from '../domain/labels';
 
-type Mode = 'practice' | 'speed' | 'attack';
+const MODES = ['practice', 'speed', 'attack'] as const;
+type Mode = (typeof MODES)[number];
 
-export function Practice({ subject }: { subject: Subject }) {
+const MODE_LABEL: Record<Mode, string> = {
+  practice: '練習',
+  speed: 'Speed',
+  attack: 'TimeAttack',
+};
+
+/** Persisted attempts for one subject: the adaptive input, never the result source. */
+function subjectAttempts(subject: Subject): Attempt[] {
+  return loadPersisted().attempts.filter((attempt) => attempt.subject === subject);
+}
+
+function PromptText({ problem }: { problem: Problem }): JSX.Element {
+  return (
+    <p className="question__prompt">
+      {problem.subject === 'arithmetic'
+        ? '? に入る数値を選べ（キー1〜5で回答）'
+        : `${problem.prompt}（キー1〜5で回答）`}
+    </p>
+  );
+}
+
+export function Practice({ subject }: { subject: Subject }): JSX.Element {
   const settings = useMemo(() => loadSettings(), []);
   const [mode, setMode] = useState<Mode>('practice');
-  const [attackMin, setAttackMin] = useState(3);
-  const [difficulty, setDifficulty] = useState<Difficulty>(2);
+  const [attackMin, setAttackMin] = useState(() => settings.timeAttackMin[0] ?? 3);
   const [auto, setAuto] = useState(true);
-  const [seed, setSeed] = useState(() => randomSeed());
-  const [problem, setProblem] = useState<Problem>(() => generateProblem(subject, randomSeed(), 2));
-  const [nextProblem, setNextProblem] = useState<Problem | null>(null);
+  const [selected, setSelected] = useState<Difficulty>(2);
+  const [question, setQuestion] = useState<Problem | null>(null);
   const [chosen, setChosen] = useState<number | null>(null);
+  const [results, setResults] = useState<readonly Attempt[]>([]);
   const [streak, setStreak] = useState(0);
-  const [results, setResults] = useState<Attempt[]>([]);
   const [paused, setPaused] = useState(false);
   const [over, setOver] = useState(false);
   const [warn, setWarn] = useState(false);
-  const t0 = useRef(performance.now());
-  const deadline = useRef(0);
   const [remain, setRemain] = useState('');
+  const [announce, setAnnounce] = useState('');
+  const [alert, setAlert] = useState('');
+  const [serial, setSerial] = useState(0);
+  const [revision, setRevision] = useState(0);
+  const [resetKey, setResetKey] = useState(0);
 
-  // pre-generate next question for zero perceived delay
+  const t0 = useRef(0);
+  const deadline = useRef(0);
+  const announced = useRef<Set<number>>(new Set());
+  const prefetchRef = useRef<Problem | null>(null);
+  const questionRef = useRef<HTMLDivElement | null>(null);
+  const firstFocus = useRef(true);
+  const autoRef = useRef(auto);
+  const selectedRef = useRef(selected);
+
+  // Ref mirrors so the session-reset effect never restarts when the difficulty
+  // control changes (it applies to the next question, not to this session).
   useEffect(() => {
-    const id = requestAnimationFrame(() => {
-      setNextProblem(generateProblem(subject, randomSeed(), auto ? adaptiveDifficulty(loadPersisted().attempts.filter((a) => a.subject === subject), difficulty) : difficulty));
-    });
-    return () => cancelAnimationFrame(id);
-  }, [problem, subject, auto, difficulty]);
+    autoRef.current = auto;
+    selectedRef.current = selected;
+  }, [auto, selected]);
 
-  const newQuestion = useCallback((d?: Difficulty) => {
-    const dd = d ?? difficulty;
-    if (nextProblem && (d === undefined || true)) {
-      setProblem(nextProblem);
-    } else {
-      setProblem(generateProblem(subject, randomSeed(), dd));
+  // Session reset: subject / mode / time limit change, or もう一度.
+  useEffect(() => {
+    const difficulty = nextDifficulty(subjectAttempts(subject), autoRef.current, selectedRef.current);
+    setQuestion(generateProblem(subject, randomSeed(), difficulty));
+    prefetchRef.current = null;
+    setChosen(null);
+    setResults([]);
+    setStreak(0);
+    setPaused(false);
+    setOver(false);
+    setWarn(false);
+    setAnnounce('');
+    setAlert('');
+    announced.current.clear();
+    for (const milestone of TIMER_MILESTONES) {
+      if (milestone >= attackMin * 60) announced.current.add(milestone);
     }
-    setNextProblem(null);
+    t0.current = performance.now();
+    if (mode === 'attack') {
+      deadline.current = performance.now() + attackMin * 60_000;
+      setRemain(formatClock(attackMin * 60));
+    } else {
+      setRemain('');
+    }
+    setSerial((value) => value + 1);
+  }, [subject, mode, attackMin, resetKey]);
+
+  // Prefetch the next question with the difficulty currently in force: adaptive
+  // over this subject's persisted attempts when 自動, else the manual choice.
+  useEffect(() => {
+    const difficulty = nextDifficulty(subjectAttempts(subject), auto, selected);
+    prefetchRef.current = generateProblem(subject, randomSeed(), difficulty);
+  }, [subject, auto, selected, revision]);
+
+  const advance = useCallback(() => {
+    const difficulty = nextDifficulty(subjectAttempts(subject), auto, selected);
+    const prefetched = prefetchRef.current;
+    // The prefetched problem is used only when its difficulty matches the
+    // difficulty computed now; otherwise it is regenerated (manual control wins).
+    setQuestion(
+      prefetched !== null && prefetched.difficulty === difficulty
+        ? prefetched
+        : generateProblem(subject, randomSeed(), difficulty),
+    );
+    prefetchRef.current = null;
     setChosen(null);
     setWarn(false);
+    setAnnounce('');
+    setAlert('');
     t0.current = performance.now();
-  }, [nextProblem, subject, difficulty]);
+    setSerial((value) => value + 1);
+    setRevision((value) => value + 1);
+  }, [subject, auto, selected]);
 
-  useEffect(() => {
-    setChosen(null); setResults([]); setOver(false);
-    const p = generateProblem(subject, randomSeed(), difficulty);
-    setProblem(p);
-    t0.current = performance.now();
-    if (mode === 'attack') deadline.current = performance.now() + attackMin * 60 * 1000;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subject, mode, attackMin]);
+  const answer = useCallback(
+    (index: number) => {
+      if (question === null || chosen !== null || paused || over) return;
+      const ms = Math.round(performance.now() - t0.current);
+      const attempt = buildAttempt(question, { chosenIndex: index, ms, at: Date.now() });
+      saveAttempt(attempt);
+      setResults((list) => [...list, attempt]);
+      setChosen(index);
+      setStreak((value) => (attempt.correct ? value + 1 : 0));
+      setAnnounce(attempt.correct ? '正解' : `不正解。正解は${correctLabel(question)}`);
+      setRevision((value) => value + 1);
+    },
+    [question, chosen, paused, over],
+  );
 
-  // attack countdown (performance.now based, throttling-safe: compute from deadline)
+  // TimeAttack: remaining time always derives from the absolute deadline, so a
+  // throttled interval can never drift. Visible timer is NOT a live region.
   useEffect(() => {
-    if (mode !== 'attack' || over) return;
-    const iv = setInterval(() => {
-      if (paused) return;
+    if (mode !== 'attack' || over || paused) return;
+    const id = setInterval(() => {
       const left = deadline.current - performance.now();
-      if (left <= 0) { setOver(true); setRemain('0:00'); clearInterval(iv); return; }
-      const s = Math.ceil(left / 1000);
-      setRemain(`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
+      if (left <= 0) {
+        setRemain('0:00');
+        setAlert('時間終了');
+        setOver(true);
+        return;
+      }
+      setRemain(formatClock(Math.ceil(left / 1000)));
+      for (const milestone of TIMER_MILESTONES) {
+        if (left <= milestone * 1000 && !announced.current.has(milestone)) {
+          announced.current.add(milestone);
+          setAlert(`残り${milestone}秒`);
+        }
+      }
     }, 250);
-    return () => clearInterval(iv);
-  }, [mode, over, paused, attackMin]);
+    return () => clearInterval(id);
+  }, [mode, over, paused]);
 
-  // speed target warning
+  // Speed: warn once the target time passed; pausing stops the interval.
   useEffect(() => {
-    if (mode !== 'speed' || chosen !== null) return;
+    if (mode !== 'speed' || chosen !== null || paused || over) return;
     const target = settings.speedTargetSec * 1000;
-    const iv = setInterval(() => {
-      setWarn(performance.now() - t0.current > target);
+    const id = setInterval(() => {
+      if (performance.now() - t0.current > target) setWarn(true);
     }, 300);
-    return () => clearInterval(iv);
-  }, [mode, chosen, settings.speedTargetSec]);
+    return () => clearInterval(id);
+  }, [mode, chosen, paused, over, settings.speedTargetSec]);
 
-  const answer = useCallback((idx: number) => {
-    if (chosen !== null || paused || over) return;
-    const ms = Math.round(performance.now() - t0.current);
-    const correctIdx = problem.subject === 'arithmetic'
-      ? (problem as Extract<Problem, { subject: 'arithmetic' }>).correctIndex
-      : (problem as Extract<Problem, { subject: 'pattern' | 'commands' | 'cipher' }>).correctIndex;
-    const ok = idx === correctIdx;
-    const attempt: Attempt = {
-      id: `${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
-      seed: problem.seed, subject: problem.subject, difficulty: problem.difficulty,
-      skillTags: problem.skillTags, correct: ok, ms, at: Date.now(), problem, chosenIndex: idx,
-    };
-    saveAttempt(attempt);
-    setResults((r) => [...r, attempt]);
-    setChosen(idx);
-    setStreak((s) => (ok ? s + 1 : 0));
-  }, [chosen, paused, over, problem]);
-
-  // keyboard: 1-5 answer, Enter/Space next, P pause (practice only)
+  // Focus the question container on every new question (no autoFocus).
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key >= '1' && e.key <= '5') {
-        const i = Number(e.key) - 1;
-        const n = problem.subject === 'arithmetic'
-          ? (problem as Extract<Problem, { subject: 'arithmetic' }>).choices.length
-          : (problem as Extract<Problem, { subject: 'pattern' | 'commands' | 'cipher' }>).choices.length;
-        if (i < n) { e.preventDefault(); answer(i); }
-      } else if (e.key === 'Enter' || e.key === ' ') {
-        if (chosen !== null || over) { e.preventDefault(); if (!over) newQuestion(); }
-      } else if ((e.key === 'p' || e.key === 'P') && mode === 'practice') {
-        setPaused((p) => !p);
+    if (firstFocus.current) {
+      firstFocus.current = false;
+      return;
+    }
+    questionRef.current?.focus();
+  }, [serial]);
+
+  // After a mouse click the choice button is disabled but keeps focus; move
+  // focus back so Enter can advance without hijacking focused action buttons.
+  useEffect(() => {
+    if (chosen === null) return;
+    const active = document.activeElement;
+    if (active !== null && active instanceof HTMLButtonElement && active.disabled) {
+      questionRef.current?.focus();
+    }
+  }, [chosen]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (isTypingTarget(event.target) || question === null) return;
+      if (event.key >= '1' && event.key <= '5') {
+        const index = Number(event.key) - 1;
+        if (index < question.choices.length) {
+          event.preventDefault();
+          answer(index);
+        }
+        return;
+      }
+      if (event.key === 'Enter' || event.key === ' ') {
+        // A focused <button> activates natively; handling it here would double-fire.
+        if (isButtonElement(event.target)) return;
+        if (chosen !== null && !over && !paused) {
+          event.preventDefault();
+          advance();
+        }
+        return;
+      }
+      if ((event.key === 'p' || event.key === 'P') && mode === 'practice') {
+        event.preventDefault();
+        setPaused((value) => !value);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [answer, chosen, over, newQuestion, mode, problem]);
+  }, [answer, advance, chosen, mode, over, paused, question]);
 
-  const correctIdx = problem.subject === 'arithmetic'
-    ? (problem as Extract<Problem, { subject: 'arithmetic' }>).correctIndex
-    : (problem as Extract<Problem, { subject: 'pattern' | 'commands' | 'cipher' }>).correctIndex;
-  const acc = results.length ? results.filter((r) => r.correct).length / results.length : 0;
-  const avgMs = results.length ? Math.round(results.reduce((s, r) => s + r.ms, 0) / results.length) : 0;
+  const onDifficultyChange = (event: ChangeEvent<HTMLSelectElement>): void => {
+    const value = Number(event.target.value);
+    if (value === 1 || value === 2 || value === 3) {
+      setSelected(value);
+      setAuto(false);
+      return;
+    }
+    setAuto(true);
+  };
+
+  const stats = summarize(results);
+  const liveFeedback = mode === 'speed' && warn && chosen === null ? '目標超過' : announce;
 
   return (
     <div>
-      <nav style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
-        <a href="#/">‹ トップ</a>
-        <strong>{SUBJECT_LABEL[subject]}</strong>
-        {(['practice', 'speed', 'attack'] as Mode[]).map((m) => (
-          <button key={m} onClick={() => setMode(m)} aria-pressed={mode === m}
-            style={{ fontWeight: mode === m ? 700 : 400 }}>
-            {m === 'practice' ? '練習' : m === 'speed' ? 'Speed' : 'TimeAttack'}
-          </button>
-        ))}
+      <LiveRegion message={liveFeedback} />
+      <LiveRegion message={alert} assertive />
+      <h1>{SUBJECT_LABEL[subject]}</h1>
+
+      <nav
+        aria-label="練習の設定"
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 'var(--space-3)',
+          marginBottom: 'var(--space-4)',
+        }}
+      >
+        <div className="segmented" role="group" aria-label="モード">
+          {MODES.map((item) => (
+            <button
+              key={item}
+              type="button"
+              aria-pressed={mode === item}
+              onClick={() => setMode(item)}
+            >
+              {MODE_LABEL[item]}
+            </button>
+          ))}
+        </div>
+
         {mode === 'attack' && (
-          <select value={attackMin} onChange={(e) => setAttackMin(Number(e.target.value))} aria-label="制限時間">
-            {settings.timeAttackMin.map((m) => <option key={m} value={m}>{m}分</option>)}
-          </select>
+          <label className="meta">
+            制限時間
+            <select
+              value={attackMin}
+              onChange={(event) => setAttackMin(Number(event.target.value))}
+            >
+              {settings.timeAttackMin.map((value) => (
+                <option key={value} value={value}>
+                  {value}分
+                </option>
+              ))}
+            </select>
+          </label>
         )}
-        <label>難易度
-          <select value={auto ? 'auto' : difficulty} onChange={(e) => {
-            if (e.target.value === 'auto') setAuto(true);
-            else { setAuto(false); setDifficulty(Number(e.target.value) as Difficulty); }
-          }}>
+
+        <label className="meta">
+          難易度
+          <select value={auto ? 'auto' : String(selected)} onChange={onDifficultyChange}>
             <option value="auto">自動</option>
-            <option value={1}>1</option><option value={2}>2</option><option value={3}>3</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
           </select>
         </label>
-        {mode === 'attack' && <span role="timer" aria-label="残り時間">残り {remain}</span>}
-        {mode === 'practice' && <button onClick={() => setPaused((p) => !p)}>{paused ? '再開(P)' : '停止(P)'}</button>}
-        <span style={{ marginLeft: 'auto' }}>正答率 {(acc * 100).toFixed(0)}% · 平均 {(avgMs / 1000).toFixed(1)}s · streak {streak} · 目標 {PACE_SEC_PER_Q[subject].toFixed(1)}s/問</span>
+
+        {mode === 'attack' && (
+          <span className="timer">
+            <span className="timer__label">残り</span>
+            {remain}
+          </span>
+        )}
+
+        {mode === 'practice' && (
+          <button type="button" className="btn" aria-pressed={paused} onClick={() => setPaused((v) => !v)}>
+            {paused ? '再開(P)' : '一時停止(P)'}
+          </button>
+        )}
+
+        <span className="meta" style={{ marginLeft: 'auto' }}>
+          正答率 {(stats.accuracy * 100).toFixed(0)}% · 平均 {(stats.avgMs / 1000).toFixed(1)}秒 · 連続正解{' '}
+          {streak} · 目標 {paceSecPerQ(settings.mock, subject).toFixed(1)}秒/問
+        </span>
       </nav>
 
-      {paused ? <p>一時停止中… Pキーで再開</p> : over ? (
-        <div>
-          <h2>終了 — {results.filter((r) => r.correct).length}/{results.length}問正解</h2>
-          <button onClick={() => { setResults([]); setOver(false); deadline.current = performance.now() + attackMin * 60 * 1000; newQuestion(); }}>もう一度</button>
-        </div>
-      ) : (
-        <QuestionView problem={problem} chosen={chosen} correctIdx={correctIdx} onAnswer={answer}
-          showExplanation={mode === 'practice' && chosen !== null} warn={warn && chosen === null} seed={seed} setSeed={setSeed} />
-      )}
-
-      {mode === 'practice' && chosen !== null && !over && (
-        <div style={{ marginTop: 12 }}>
-          <p style={{ color: chosen === correctIdx ? 'green' : 'crimson', fontWeight: 700 }}>
-            {chosen === correctIdx ? '○ 正解' : `× 不正解（正解: ${correctLabel(problem, correctIdx)}）`} · {(results[results.length - 1]?.ms / 1000).toFixed(1)}s
+      {over ? (
+        <section className="card">
+          <h2>
+            終了 — {stats.answered}問中 {stats.correct}問正解
+          </h2>
+          <p className="meta">
+            正答率 {(stats.accuracy * 100).toFixed(1)}% · 平均 {(stats.avgMs / 1000).toFixed(1)}秒 · 連続正解{' '}
+            {stats.bestStreak}
           </p>
-          <p style={{ color: 'var(--muted)' }}>解法: {problem.explanation} (seed: {problem.seed})</p>
-          <button onClick={() => newQuestion()} autoFocus>次へ (Enter)</button>
-        </div>
-      )}
-      {(mode !== 'practice' && chosen !== null) && (
-        <div style={{ marginTop: 8 }}><button onClick={() => newQuestion()} autoFocus>次へ (Enter)</button></div>
-      )}
-    </div>
-  );
-}
+          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+            <button type="button" className="btn btn--primary" onClick={() => setResetKey((k) => k + 1)}>
+              もう一度
+            </button>
+            <a className="btn" href="#/">
+              トップへ
+            </a>
+          </div>
+        </section>
+      ) : paused ? (
+        <section className="card">
+          <h2>一時停止中</h2>
+          <p className="meta">Pキーまたは下のボタンで再開します。</p>
+          <button type="button" className="btn btn--primary" onClick={() => setPaused(false)}>
+            再開する
+          </button>
+        </section>
+      ) : question === null ? (
+        <p>生成中…</p>
+      ) : (
+        <>
+          <div
+            className="question"
+            ref={questionRef}
+            tabIndex={-1}
+            aria-label={`問題 seed ${question.seed}・難易度${question.difficulty}`}
+          >
+            <PromptText problem={question} />
+            {question.subject === 'arithmetic' ? (
+              <p className="question__display">{question.display}</p>
+            ) : (
+              <QuestionFigures problem={question} />
+            )}
+            <ChoiceGrid
+              items={buildChoiceItems(question)}
+              chosenIndex={chosen}
+              correctIndex={chosen === null ? null : question.correctIndex}
+              onChoose={answer}
+              disabled={paused || over}
+            />
+          </div>
 
-function correctLabel(p: Problem, idx: number): string {
-  if (p.subject === 'arithmetic') return String(p.choices[idx]);
-  return `選択肢${idx + 1}`;
-}
-
-function QuestionView({ problem, chosen, correctIdx, onAnswer, showExplanation: _show, warn, seed: _s, setSeed: _ss }: {
-  problem: Problem; chosen: number | null; correctIdx: number;
-  onAnswer: (i: number) => void; showExplanation: boolean; warn: boolean; seed: number; setSeed: (n: number) => void;
-}) {
-  void _show; void _s; void _ss;
-  if (problem.subject === 'arithmetic') {
-    return (
-      <div>
-        <p style={{ fontSize: 13, color: 'var(--muted)' }}>? に入る数値を選べ（キー1〜5）</p>
-        <p style={{ fontSize: 34, fontFamily: 'monospace', letterSpacing: 1 }} aria-live="polite">{problem.display}</p>
-        {warn && <p role="alert" style={{ color: 'darkorange' }}>目標超過！</p>}
-        <ol style={{ display: 'flex', gap: 8, listStyle: 'none', padding: 0 }} aria-label="選択肢">
-          {problem.choices.map((c, i) => {
-            const state = chosen === null ? 'idle' : i === correctIdx ? 'ok' : i === chosen ? 'ng' : 'dim';
-            return (
-              <li key={i}>
-                <button onClick={() => onAnswer(i)} aria-label={`選択肢${i + 1}: ${c}`}
-                  style={choiceStyle(state)}>
-                  <span style={{ color: 'var(--muted)', marginRight: 6 }}>[{i + 1}]</span>{c}
+          {chosen !== null && (
+            <div style={{ marginTop: 'var(--space-4)' }}>
+              {mode === 'practice' && (
+                <div className="explanation">
+                  <p style={{ margin: 0 }}>
+                    <strong>解法:</strong> {question.explanation}
+                  </p>
+                  <p className="meta" style={{ margin: 'var(--space-1) 0 0' }}>
+                    seed: {question.seed} · 難易度 {question.difficulty}
+                  </p>
+                </div>
+              )}
+              {mode === 'speed' && warn && (
+                <p className="warn-text">目標超過（{settings.speedTargetSec}秒以内が目安です）</p>
+              )}
+              <div style={{ marginTop: 'var(--space-3)' }}>
+                <button type="button" className="btn btn--primary" onClick={advance}>
+                  次へ (Enter)
                 </button>
-              </li>
-            );
-          })}
-        </ol>
-      </div>
-    );
-  }
-  const fp = problem as Extract<Problem, { subject: 'pattern' | 'commands' | 'cipher' }>;
-  return (
-    <div>
-      <p style={{ fontSize: 13, color: 'var(--muted)' }}>{fp.prompt}（キー1〜5）</p>
-      {fp.subject === 'commands' && fp.commandSeq && (
-        <div style={{ display: 'flex', gap: 6, margin: '8px 0', flexWrap: 'wrap' }} aria-label="命令表">
-          {fp.commandSeq.map((c, i) => <code key={i} style={{ padding: '4px 8px', border: '1px solid var(--border)', borderRadius: 6 }}>{c}</code>)}
-        </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
-      {fp.examples && (
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', margin: '8px 0' }}>
-          <span>例:</span>
-          <Figure state={fp.examples[0].input} size={90} label="入力A" />
-          <span aria-hidden>→</span>
-          <Figure state={fp.examples[0].output} size={90} label="出力A" />
-        </div>
-      )}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }} aria-label="図形">
-        {fp.subject === 'pattern' ? fp.frames.map((f, i) => (
-          i === fp.missingIndex
-            ? <span key={i} style={{ width: 120, height: 120, display: 'grid', placeItems: 'center', border: '2px dashed var(--border)', borderRadius: 8, fontSize: 28 }}>?</span>
-            : <Figure key={i} state={f} label={`図${i + 1}`} />
-        )) : (
-          <>
-            {fp.start && <><Figure state={fp.start} label="開始図形" /><span aria-hidden>{fp.subject === 'commands' ? '+' : '入力B'}</span></>}
-            {!fp.examples && fp.frames[0] && fp.subject !== 'commands' && <Figure state={fp.frames[0]} label="入力" />}
-          </>
-        )}
-      </div>
-      {warn && <p role="alert" style={{ color: 'darkorange' }}>目標超過！</p>}
-      <ol style={{ display: 'flex', gap: 8, listStyle: 'none', padding: 0, flexWrap: 'wrap' }} aria-label="選択肢">
-        {fp.choices.map((c, i) => {
-          const state = chosen === null ? 'idle' : i === correctIdx ? 'ok' : i === chosen ? 'ng' : 'dim';
-          return (
-            <li key={i}>
-              <button onClick={() => onAnswer(i)} aria-label={`選択肢${i + 1}`} style={{ ...choiceStyle(state), padding: 6 }}>
-                <span style={{ color: 'var(--muted)', fontSize: 12 }}>[{i + 1}]</span>
-                <Figure state={c} size={96} label={`選択肢${i + 1}`} />
-              </button>
-            </li>
-          );
-        })}
-      </ol>
     </div>
   );
-}
-
-function choiceStyle(state: 'idle' | 'ok' | 'ng' | 'dim'): React.CSSProperties {
-  const base: React.CSSProperties = { fontSize: 18, padding: '10px 16px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--card)' };
-  if (state === 'ok') return { ...base, border: '2px solid green', background: '#e9f7ee' };
-  if (state === 'ng') return { ...base, border: '2px solid crimson', background: '#fdecec' };
-  if (state === 'dim') return { ...base, opacity: 0.55 };
-  return base;
 }

@@ -1,187 +1,313 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+// allow: SIZE_OK — page-local session state machine; shared renderers live in components/.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { JSX } from 'react';
+import { SUBJECTS } from '../domain/types';
+import type { Attempt, Difficulty, Problem, Subject } from '../domain/types';
+import { randomSeed } from '../domain/rng';
 import { generateProblem } from '../generators';
-import type { Problem, Subject } from '../types';
-import { PACE_SEC_PER_Q, summarize, withPace } from '../stats/engine';
-import { loadPersisted, loadSettings, saveAttempt, saveMock } from '../storage/store';
-import { randomSeed } from '../utils/rng';
-import { Figure } from '../components/Figure';
-import { SUBJECT_LABEL } from './Home';
+import { summarize, withPace } from '../stats/engine';
+import { loadSettings, saveAttempt, saveMock } from '../storage/store';
+import { ChoiceGrid } from '../components/ChoiceGrid';
+import { QuestionFigures } from '../components/QuestionFigures';
+import { buildChoiceItems } from '../components/quizChoices';
+import { LiveRegion } from '../components/LiveRegion';
+import {
+  buildAttempt,
+  formatClock,
+  isButtonElement,
+  isTypingTarget,
+  mockPaceSecPerQ,
+  mockProblemPlan,
+  mockTotals,
+  sessionTotals,
+  TIMER_MILESTONES,
+} from '../features/quizHelpers';
+import { SUBJECT_LABEL } from '../domain/labels';
 
-const ORDER: Subject[] = ['arithmetic', 'pattern', 'commands', 'cipher'];
+/** Mocks test at a fixed, middle difficulty (same for every candidate). */
+const MOCK_DIFFICULTY: Difficulty = 2;
+const CHOICES = [...SUBJECTS, 'mixed'] as const;
 
-export function Mock() {
+export function Mock(): JSX.Element {
   const settings = useMemo(() => loadSettings(), []);
   const [subject, setSubject] = useState<Subject | 'mixed'>('arithmetic');
   const [started, setStarted] = useState(false);
-  const [idx, setIdx] = useState(0);
-  const [chosen, setChosen] = useState<number | null>(null);
-  const [problems, setProblems] = useState<Problem[]>([]);
-  const [msList, setMsList] = useState<number[]>([]);
-  const [correctList, setCorrectList] = useState<boolean[]>([]);
   const [done, setDone] = useState(false);
-  const t0 = useRef(performance.now());
-  const endAt = useRef(0);
+  const [problems, setProblems] = useState<readonly Problem[]>([]);
+  const [index, setIndex] = useState(0);
+  const [chosen, setChosen] = useState<number | null>(null);
+  const [sessionAttempts, setSessionAttempts] = useState<readonly Attempt[]>([]);
   const [remain, setRemain] = useState('');
+  const [alert, setAlert] = useState('');
 
-  const total = subject === 'mixed'
-    ? ORDER.reduce((s, k) => s + settings.mock[k].questions, 0)
-    : settings.mock[subject].questions;
-  const minutes = subject === 'mixed'
-    ? ORDER.reduce((s, k) => s + settings.mock[k].minutes, 0)
-    : settings.mock[subject].minutes;
+  const t0 = useRef(0);
+  const endAt = useRef(0);
+  const announced = useRef<Set<number>>(new Set());
+  const questionRef = useRef<HTMLDivElement | null>(null);
+  const firstFocus = useRef(true);
+  const finishRef = useRef<() => void>(() => {});
+  const finishedRef = useRef(false);
 
-  const start = () => {
+  const totals = mockTotals(settings.mock, subject);
+  const current = problems[index];
+
+  // Accounting is session-only: answered/correct/avg come from this run's own
+  // Attempt[] — never from the persisted history.
+  const finish = useCallback((): void => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    setDone(true);
+    const { answered, correct, avgMs } = sessionTotals(sessionAttempts);
+    saveMock({ at: Date.now(), subject, answered, correct, avgMs });
+  }, [sessionAttempts, subject]);
+
+  // The 250 ms interval must observe the latest session attempts.
+  useEffect(() => {
+    finishRef.current = finish;
+  }, [finish]);
+
+  const start = (): void => {
     const list: Problem[] = [];
-    if (subject === 'mixed') {
-      for (const k of ORDER) for (let i = 0; i < settings.mock[k].questions; i++) list.push(generateProblem(k, randomSeed(), 2));
-    } else {
-      for (let i = 0; i < settings.mock[subject].questions; i++) list.push(generateProblem(subject, randomSeed(), 2));
+    for (const entry of mockProblemPlan(settings.mock, subject)) {
+      for (let i = 0; i < entry.questions; i += 1) {
+        list.push(generateProblem(entry.subject, randomSeed(), MOCK_DIFFICULTY));
+      }
     }
-    setProblems(list); setIdx(0); setChosen(null); setMsList([]); setCorrectList([]); setDone(false);
-    endAt.current = performance.now() + minutes * 60 * 1000;
+    setProblems(list);
+    setIndex(0);
+    setChosen(null);
+    setSessionAttempts([]);
+    setDone(false);
+    setAlert('');
+    announced.current.clear();
+    for (const milestone of TIMER_MILESTONES) {
+      if (milestone >= totals.minutes * 60) announced.current.add(milestone);
+    }
+    finishedRef.current = false;
     t0.current = performance.now();
+    endAt.current = performance.now() + totals.minutes * 60_000;
+    setRemain(formatClock(totals.minutes * 60));
     setStarted(true);
-    try { localStorage.setItem('webcab.mock.resume', JSON.stringify({ subject, at: Date.now() })); } catch { /* noop */ }
   };
+
+  const answer = useCallback(
+    (choiceIndex: number) => {
+      if (current === undefined || chosen !== null || done) return;
+      if (performance.now() >= endAt.current) return;
+      const ms = Math.round(performance.now() - t0.current);
+      const attempt = buildAttempt(current, { chosenIndex: choiceIndex, ms, at: Date.now() });
+      saveAttempt(attempt);
+      setSessionAttempts((list) => [...list, attempt]);
+      setChosen(choiceIndex);
+    },
+    [current, chosen, done],
+  );
+
+  const next = useCallback(() => {
+    if (current === undefined || chosen === null) return;
+    if (index + 1 >= problems.length) {
+      finishRef.current();
+      return;
+    }
+    setIndex((value) => value + 1);
+    setChosen(null);
+    t0.current = performance.now();
+  }, [current, chosen, index, problems.length]);
+
+  // Remaining time from the absolute deadline (throttle-safe); milestones are
+  // announced assertively, the visible clock is not a live region.
+  useEffect(() => {
+    if (!started || done) return;
+    const id = setInterval(() => {
+      const left = endAt.current - performance.now();
+      if (left <= 0) {
+        setRemain('0:00');
+        setAlert('時間終了');
+        finishRef.current();
+        return;
+      }
+      setRemain(formatClock(Math.ceil(left / 1000)));
+      for (const milestone of TIMER_MILESTONES) {
+        if (left <= milestone * 1000 && !announced.current.has(milestone)) {
+          announced.current.add(milestone);
+          setAlert(`残り${milestone}秒`);
+        }
+      }
+    }, 250);
+    return () => clearInterval(id);
+  }, [started, done]);
 
   useEffect(() => {
     if (!started || done) return;
-    const iv = setInterval(() => {
-      const left = endAt.current - performance.now();
-      if (left <= 0) { finish(true); clearInterval(iv); return; }
-      const s = Math.ceil(left / 1000);
-      setRemain(`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
-    }, 250);
-    return () => clearInterval(iv);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started, done]);
-
-  const cur = problems[idx];
-  const correctIdx = cur ? (cur.subject === 'arithmetic'
-    ? (cur as Extract<Problem, { subject: 'arithmetic' }>).correctIndex
-    : (cur as Extract<Problem, { subject: 'pattern' | 'commands' | 'cipher' }>).correctIndex) : 0;
-
-  const answer = (i: number) => {
-    if (chosen !== null || !cur) return;
-    const ms = Math.round(performance.now() - t0.current);
-    const ok = i === correctIdx;
-    saveAttempt({
-      id: `${Date.now()}-${i}`, seed: cur.seed, subject: cur.subject, difficulty: cur.difficulty,
-      skillTags: cur.skillTags, correct: ok, ms, at: Date.now(), problem: cur, chosenIndex: i,
-    });
-    setChosen(i);
-    setMsList((m) => [...m, ms]);
-    setCorrectList((c) => [...c, ok]);
-  };
-
-  const next = () => {
-    if (idx + 1 >= problems.length) { finish(false); return; }
-    setIdx((v) => v + 1); setChosen(null);
-    t0.current = performance.now();
-  };
-
-  const finish = (timeout: boolean) => {
-    void timeout;
-    setDone(true);
-    const answered = correctList.length + (chosen !== null && !correctList.length ? 0 : 0);
-    const correct = correctList.filter(Boolean).length + (chosen !== null && problems[idx] ? (chosen === correctIdx ? 1 : 0) : 0);
-    const avg = msList.length ? Math.round(msList.reduce((a, b) => a + b, 0) / msList.length) : 0;
-    saveMock({ at: Date.now(), subject, answered: answered || problems.length, correct, avgMs: avg });
-    try { localStorage.removeItem('webcab.mock.resume'); } catch { /* noop */ }
-  };
+    if (firstFocus.current) {
+      firstFocus.current = false;
+      return;
+    }
+    questionRef.current?.focus();
+  }, [index, started, done]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!started || done || !cur) return;
-      if (e.key >= '1' && e.key <= '5') {
-        const n = cur.subject === 'arithmetic'
-          ? (cur as Extract<Problem, { subject: 'arithmetic' }>).choices.length
-          : (cur as Extract<Problem, { subject: 'pattern' | 'commands' | 'cipher' }>).choices.length;
-        const i = Number(e.key) - 1;
-        if (i < n) answer(i);
-      } else if (e.key === 'Enter' || e.key === ' ') {
-        if (chosen !== null) { e.preventDefault(); next(); }
+    if (chosen === null) return;
+    const active = document.activeElement;
+    if (active !== null && active instanceof HTMLButtonElement && active.disabled) {
+      questionRef.current?.focus();
+    }
+  }, [chosen]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (!started || done || isTypingTarget(event.target)) return;
+      const problem = problems[index];
+      if (problem === undefined) return;
+      if (event.key >= '1' && event.key <= '5') {
+        const choiceIndex = Number(event.key) - 1;
+        if (choiceIndex < problem.choices.length) {
+          event.preventDefault();
+          answer(choiceIndex);
+        }
+        return;
+      }
+      if (event.key === 'Enter' || event.key === ' ') {
+        if (isButtonElement(event.target)) return;
+        if (chosen !== null) {
+          event.preventDefault();
+          next();
+        }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started, done, cur, chosen]);
+  }, [started, done, problems, index, chosen, answer, next]);
 
   if (!started) {
     return (
       <div>
-        <a href="#/">‹ トップ</a>
         <h1>総合模試</h1>
-        <p style={{ color: 'var(--muted)' }}>本番形式: 解説なし・正誤表示なし。残り時間と問題番号のみ。</p>
-        <div style={{ display: 'flex', gap: 8, margin: '12px 0' }}>
-          {(['arithmetic', 'pattern', 'commands', 'cipher', 'mixed'] as const).map((s) => (
-            <button key={s} onClick={() => setSubject(s)} aria-pressed={subject === s}>
-              {s === 'mixed' ? '全科目' : SUBJECT_LABEL[s]}
+        <p className="meta">本番形式: 解説なし・正誤表示なし。残り時間と問題番号のみを表示します。</p>
+        <div className="segmented" role="group" aria-label="科目" style={{ marginBottom: 'var(--space-4)' }}>
+          {CHOICES.map((key) => (
+            <button key={key} type="button" aria-pressed={subject === key} onClick={() => setSubject(key)}>
+              {key === 'mixed' ? '全科目' : SUBJECT_LABEL[key]}
             </button>
           ))}
         </div>
-        <p>問題数 {total}問 / {minutes}分 {subject !== 'mixed' && <span>(目安 {PACE_SEC_PER_Q[subject as Subject].toFixed(1)}s/問)</span>}</p>
-        <button onClick={start} style={{ fontSize: 18, padding: '10px 24px' }}>開始</button>
-        <p style={{ color: 'var(--muted)', fontSize: 13 }}>設定から問題数・時間を変更できます。途中終了時はブラウザを閉じても記録は残ります。</p>
+        <p>
+          問題数 {totals.questions}問 / {totals.minutes}分
+          {subject !== 'mixed' && (
+            <span className="meta">（目安 {mockPaceSecPerQ(settings.mock, subject).toFixed(1)}秒/問）</span>
+          )}
+        </p>
+        <button type="button" className="btn btn--primary" onClick={start}>
+          開始
+        </button>
+        <p className="meta" style={{ marginTop: 'var(--space-3)' }}>
+          問題数・制限時間は設定画面で変更できます。
+        </p>
       </div>
     );
   }
 
   if (done) {
-    const attempts = loadPersisted().attempts.slice(-Math.max(1, correctList.length + 1));
-    const s = withPace(summarize(attempts), subject === 'mixed' ? 20 : PACE_SEC_PER_Q[subject as Subject]);
+    const summary = withPace(summarize(sessionAttempts), mockPaceSecPerQ(settings.mock, subject));
+    const paceDiff = summary.paceDiffMs;
+    const paceText =
+      paceDiff === null
+        ? '—'
+        : paceDiff >= 0
+          ? `目標より${(paceDiff / 1000).toFixed(1)}秒速い`
+          : `目標より${(-paceDiff / 1000).toFixed(1)}秒遅い`;
     return (
       <div>
+        <LiveRegion message={alert} assertive />
         <h1>結果</h1>
-        <ul>
-          <li>正答数: {correctList.filter(Boolean).length + (chosen !== null && chosen === correctIdx ? 1 : 0)} / {problems.length}</li>
-          <li>正答率: {(s.accuracy * 100).toFixed(1)}%</li>
-          <li>平均: {(s.avgMs / 1000).toFixed(1)}s · 中央値: {(s.medianMs / 1000).toFixed(1)}s · p90: {(s.p90Ms / 1000).toFixed(1)}s</li>
-          <li>本番ペース比較: {s.paceDiffMs !== null && s.paceDiffMs >= 0 ? `目標より${(s.paceDiffMs / 1000).toFixed(1)}s速い` : `目標より${(((s.paceDiffMs ?? 0) * -1) / 1000).toFixed(1)}s遅い`}</li>
-        </ul>
-        <p style={{ color: 'var(--muted)' }}>※これは練習ペースの目安であり、合否判定ではありません。</p>
-        <a href="#/">トップへ</a> <a href="#/stats">統計へ</a>
+        <section className="card">
+          <h2>
+            {subject === 'mixed' ? '全科目' : SUBJECT_LABEL[subject]} — {summary.answered}問回答
+          </h2>
+          <ul>
+            <li>
+              正答数: {summary.correct} / {problems.length}問（未回答 {problems.length - summary.answered}問）
+            </li>
+            <li>正答率: {(summary.accuracy * 100).toFixed(1)}%</li>
+            <li>
+              平均: {(summary.avgMs / 1000).toFixed(1)}秒 · 中央値: {(summary.medianMs / 1000).toFixed(1)}秒 · p90:{' '}
+              {(summary.p90Ms / 1000).toFixed(1)}秒
+            </li>
+            <li>
+              本番ペース {((summary.vsPaceMs ?? 0) / 1000).toFixed(1)}秒/問: {paceText}
+            </li>
+          </ul>
+          <p className="meta">※これは練習ペースの目安であり、合否判定ではありません。</p>
+        </section>
+        <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-4)', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => {
+              setStarted(false);
+              setDone(false);
+              setProblems([]);
+              setSessionAttempts([]);
+              setChosen(null);
+              setIndex(0);
+            }}
+          >
+            もう一度
+          </button>
+          <a className="btn" href="#/">
+            トップへ
+          </a>
+          <a className="btn" href="#/stats">
+            統計へ
+          </a>
+        </div>
       </div>
     );
   }
 
-  if (!cur) return <p>生成中…</p>;
-  return (
-    <div>
-      <p>残り {remain} · {idx + 1}/{problems.length}問 · 回答 {chosen !== null ? '済' : '—'}（正誤・解説なし）</p>
-      <MockQuestion problem={cur} onAnswer={answer} />
-      <div style={{ marginTop: 8 }}><button onClick={next} disabled={chosen === null}>次へ (Enter)</button></div>
-    </div>
-  );
-}
+  if (current === undefined) return <p>生成中…</p>;
 
-function MockQuestion({ problem, onAnswer }: { problem: Problem; onAnswer: (i: number) => void }) {
-  if (problem.subject === 'arithmetic') {
-    return (
-      <div>
-        <p style={{ fontSize: 32, fontFamily: 'monospace' }}>{problem.display}</p>
-        <ol style={{ display: 'flex', gap: 8, listStyle: 'none', padding: 0 }}>
-          {problem.choices.map((c, i) => <li key={i}><button onClick={() => onAnswer(i)}>[{i + 1}] {c}</button></li>)}
-        </ol>
-      </div>
-    );
-  }
-  const fp = problem as Extract<Problem, { subject: 'pattern' | 'commands' | 'cipher' }>;
   return (
     <div>
-      <p style={{ color: 'var(--muted)', fontSize: 13 }}>{fp.prompt}</p>
-      {fp.commandSeq && <div style={{ display: 'flex', gap: 6 }}>{fp.commandSeq.map((c, i) => <code key={i}>{c}</code>)}</div>}
-      {fp.examples && <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Figure state={fp.examples[0].input} size={80} /><span>→</span><Figure state={fp.examples[0].output} size={80} /></div>}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {fp.subject === 'pattern' ? fp.frames.map((f, i) => i === fp.missingIndex
-          ? <span key={i} style={{ width: 110, height: 110, display: 'grid', placeItems: 'center', border: '2px dashed var(--border)', borderRadius: 8 }}>?</span>
-          : <Figure key={i} state={f} size={110} />)
-          : <>{fp.start && <Figure state={fp.start} size={110} />}</>}
+      <LiveRegion message={alert} assertive />
+      <h1>{subject === 'mixed' ? '全科目' : SUBJECT_LABEL[subject]}</h1>
+      <p className="meta">
+        <span className="timer">
+          <span className="timer__label">残り</span>
+          {remain}
+        </span>{' '}
+        {index + 1}/{problems.length}問 · {chosen === null ? '未回答' : `回答 ${chosen + 1} を選択`}
+        （正誤・解説は表示されません）
+      </p>
+      <div
+        className="question"
+        ref={questionRef}
+        tabIndex={-1}
+        aria-label={`問題 ${index + 1} / ${problems.length}`}
+      >
+        <p className="question__prompt">
+          {current.subject === 'arithmetic'
+            ? '? に入る数値を選べ（キー1〜5で回答）'
+            : `${current.prompt}（キー1〜5で回答）`}
+        </p>
+        {current.subject === 'arithmetic' ? (
+          <p className="question__display">{current.display}</p>
+        ) : (
+          <QuestionFigures problem={current} />
+        )}
+        <ChoiceGrid
+          items={buildChoiceItems(current)}
+          chosenIndex={chosen}
+          correctIndex={null}
+          onChoose={answer}
+          disabled={chosen !== null}
+        />
       </div>
-      <ol style={{ display: 'flex', gap: 8, listStyle: 'none', padding: 0 }}>
-        {fp.choices.map((c, i) => <li key={i}><button onClick={() => onAnswer(i)} style={{ padding: 4 }}>[{i + 1}]<Figure state={c} size={88} /></button></li>)}
-      </ol>
+      <div style={{ marginTop: 'var(--space-4)' }}>
+        <button type="button" className="btn btn--primary" onClick={next} disabled={chosen === null}>
+          {index + 1 >= problems.length ? '結果を見る (Enter)' : '次へ (Enter)'}
+        </button>
+      </div>
     </div>
   );
 }

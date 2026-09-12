@@ -1,148 +1,175 @@
-import { Rng } from '../utils/rng';
-import type { Difficulty, FigObj, FigState, FigureProblem, SkillTag } from '../types';
+// Commands generator: a start figure plus an ordered command list.
+//
+// The answer AND every distractor state come from `applyPrimitives`, the only
+// interpreter of `Primitive`. Commands are drawn only from the pool whose effect
+// is VISIBLE for the sampled main shape (square/circle ignore rotate and flip,
+// triangle ignores flip), so every command in a problem changes the render. The
+// `arrow` pool holds all nine `CmdName`s; all nine stay reachable across seeds at
+// every difficulty.
+//
+// Distractor guarantee: `pickDistractors` dedupes by `visualKey` and falls back
+// to toggleFill + moveMarker 1/2/3 slots (visible for every shape), so four
+// distractors always exist even when the command list is a round trip and the
+// answer equals `start` (e.g. Rotate180 applied twice).
 
-export type CmdName =
-  | 'Rotate90' | 'Rotate180' | 'FlipH' | 'FlipV'
-  | 'ToggleFill' | 'SwapPos' | 'MoveMarker' | 'AddDot' | 'RemoveDot';
+import type { CmdName } from '../domain/recipe';
+import { CMD_LABEL, expandCommand, sequenceOps } from '../domain/recipe';
+import type { Difficulty, FigObj, FigureProblem, FigState, Rot, SkillTag } from '../domain/types';
+import { Rng } from '../domain/rng';
+import { applyPrimitives, figureKey } from '../domain/figure';
+import { resolveDifficulty, sampleCommandLength } from './policy';
+import { pickDistractors } from './distractors';
 
-export const CMD_LABEL: Record<CmdName, string> = {
-  Rotate90: '◐90°', Rotate180: '◑180°', FlipH: '⇋反転', FlipV: '⇅反転',
-  ToggleFill: '◉塗替', SwapPos: '⇄交換', MoveMarker: '↻移動',
-  AddDot: '＋点', RemoveDot: '－点',
+export interface CommandsOpts {
+  seed: number;
+  difficulty?: Difficulty;
+}
+
+type MainShape = Extract<FigObj['shape'], 'circle' | 'square' | 'triangle' | 'arrow'>;
+
+const MAIN_SHAPES: readonly MainShape[] = ['circle', 'square', 'triangle', 'arrow'];
+/** Commands that visibly change each shape (see `visualKey` in figure.ts). */
+const COMMANDS_BY_SHAPE: Record<MainShape, readonly CmdName[]> = {
+  arrow: [
+    'Rotate90',
+    'Rotate180',
+    'FlipH',
+    'FlipV',
+    'ToggleFill',
+    'SwapPos',
+    'MoveMarker',
+    'AddDot',
+    'RemoveDot',
+  ],
+  triangle: ['Rotate90', 'Rotate180', 'ToggleFill', 'SwapPos', 'MoveMarker', 'AddDot', 'RemoveDot'],
+  square: ['ToggleFill', 'SwapPos', 'MoveMarker', 'AddDot', 'RemoveDot'],
+  circle: ['ToggleFill', 'SwapPos', 'MoveMarker', 'AddDot', 'RemoveDot'],
 };
 
-export function applyCommand(s: FigState, cmd: CmdName): FigState {
-  const objects = s.objects.map((o) => ({ ...o }));
-  const main = objects[0];
-  const next: FigState = { objects, markerPos: s.markerPos };
-  switch (cmd) {
-    case 'Rotate90':
-      main.rot = (((main.rot + 90) % 360) as FigObj['rot']);
-      break;
-    case 'Rotate180':
-      main.rot = (((main.rot + 180) % 360) as FigObj['rot']);
-      break;
-    case 'FlipH':
-      main.flipH = !main.flipH;
-      break;
-    case 'FlipV':
-      main.rot = (((main.rot + 180) % 360) as FigObj['rot']);
-      main.flipH = !main.flipH;
-      break;
-    case 'ToggleFill':
-      main.fill = !main.fill;
-      break;
-    case 'SwapPos': {
-      if (objects.length >= 2) {
-        const [ax, ay] = [objects[0].x, objects[0].y];
-        objects[0].x = objects[1].x; objects[0].y = objects[1].y;
-        objects[1].x = ax; objects[1].y = ay;
-      }
-      break;
-    }
-    case 'MoveMarker':
-      next.markerPos = ((next.markerPos ?? 0) + 1) % 4;
-      break;
-    case 'AddDot':
-      objects.push({ shape: 'dot', x: 60, y: 60, rot: 0, fill: true, size: 5 });
-      break;
-    case 'RemoveDot': {
-      const i = objects.findIndex((o) => o.shape === 'dot');
-      if (i >= 0) objects.splice(i, 1);
-      break;
-    }
+const START_ROTS: readonly Rot[] = [0, 90, 180, 270];
+const PROMPT = '命令列を適用した最終図形を選べ';
+
+function assertNever(x: never): never {
+  throw new Error(`unexpected value: ${String(x)}`);
+}
+
+function commandCount(rng: Rng, difficulty: Difficulty): number {
+  const bucket = sampleCommandLength(rng, difficulty);
+  switch (bucket) {
+    case '1-2':
+      return rng.int(1, 2);
+    case '3-4':
+      return rng.int(3, 4);
+    case '5+':
+      return 5;
+    default:
+      return assertNever(bucket);
   }
-  return next;
 }
 
-export function applyCommands(s: FigState, cmds: CmdName[]): FigState {
-  return cmds.reduce((acc, c) => applyCommand(acc, c), s);
+function pickCommands(rng: Rng, difficulty: Difficulty, shape: MainShape): CmdName[] {
+  const count = commandCount(rng, difficulty);
+  const pool = COMMANDS_BY_SHAPE[shape];
+  const commands: CmdName[] = [];
+  for (let i = 0; i < count; i++) commands.push(rng.pick(pool));
+  return commands;
 }
 
-function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v)) as T;
+/** Main shape near the left edge + one dot near the right, marker in slot 0. */
+function buildStart(rng: Rng, shape: MainShape): FigState {
+  const main: FigObj = {
+    shape,
+    x: 40,
+    y: 50,
+    rot: rng.pick(START_ROTS),
+    fill: rng.chance(0.5),
+    size: 22,
+    flipH: false,
+  };
+  const dot: FigObj = { shape: 'dot', x: 80, y: 50, rot: 0, fill: true, size: 5, flipH: false };
+  return { objects: [main, dot], markerPos: 0 };
 }
 
-function stateKey(s: FigState): string {
-  return s.objects.map((o) => `${o.shape},${o.x},${o.y},${o.rot},${o.fill},${o.flipH ? 1 : 0}`).join('|') + `#${s.markerPos}:${s.objects.length}`;
-}
-
-function cmdTags(cmds: CmdName[]): SkillTag[] {
+function commandTags(commands: readonly CmdName[]): SkillTag[] {
   const tags = new Set<SkillTag>();
-  for (const c of cmds) {
-    if (c === 'Rotate90' || c === 'Rotate180') tags.add('cmd-rotate');
-    else if (c === 'FlipH' || c === 'FlipV') tags.add('cmd-flip');
-    else if (c === 'ToggleFill') tags.add('cmd-toggle');
-    else if (c === 'MoveMarker' || c === 'SwapPos') tags.add('cmd-move');
-    else tags.add('count');
+  for (const command of commands) {
+    switch (command) {
+      case 'Rotate90':
+      case 'Rotate180':
+        tags.add('cmd-rotate');
+        break;
+      case 'FlipH':
+      case 'FlipV':
+        tags.add('cmd-flip');
+        break;
+      case 'ToggleFill':
+        tags.add('cmd-toggle');
+        break;
+      case 'SwapPos':
+      case 'MoveMarker':
+        tags.add('cmd-move');
+        break;
+      case 'AddDot':
+      case 'RemoveDot':
+        tags.add('count');
+        break;
+      default:
+        return assertNever(command);
+    }
   }
-  if (cmds.length >= 3) tags.add('composite-2');
-  if (cmds.length >= 5) tags.add('composite-3');
+  if (commands.length >= 3) tags.add('composite-2');
+  if (commands.length >= 5) tags.add('composite-3');
   return [...tags];
 }
 
-export function generateCommands(opts: { seed: number; difficulty?: Difficulty }): FigureProblem {
-  const rng = new Rng(opts.seed);
-  const difficulty = opts.difficulty ?? ((rng.int(1, 3)) as Difficulty);
-  const cmdLen = difficulty === 1 ? rng.int(1, 2) : difficulty === 2 ? rng.int(3, 4) : rng.int(4, 5);
-  const pool: CmdName[] = difficulty === 1
-    ? ['Rotate90', 'ToggleFill', 'MoveMarker', 'FlipH']
-    : ['Rotate90', 'Rotate180', 'FlipH', 'FlipV', 'ToggleFill', 'SwapPos', 'MoveMarker', 'AddDot'];
-  const cmds: CmdName[] = [];
-  for (let i = 0; i < cmdLen; i++) cmds.push(rng.pick(pool));
-  const start: FigState = {
-    objects: [
-      { shape: rng.pick(['circle', 'square', 'triangle', 'arrow'] as const), x: 40, y: 50, rot: 0, fill: rng.chance(0.5), size: 22 },
-      { shape: 'dot', x: 80, y: 50, rot: 0, fill: true, size: 5 },
-    ],
-    markerPos: 0,
-  };
-  const answer = applyCommands(clone(start), cmds);
-  // distractors: single-command, reverse order, forgot-toggle, prev-state
-  const cands: FigState[] = [];
-  cands.push(applyCommands(clone(start), cmds.slice(0, Math.max(1, cmds.length - 1))));
-  cands.push(applyCommands(clone(start), [...cmds].reverse()));
-  cands.push(clone(start));
-  // forgot last toggle/rotate
-  const partial = cmds.filter((c, i) => !(i === cmds.length - 1 && (c === 'ToggleFill' || c === 'Rotate90')));
-  cands.push(applyCommands(clone(start), partial.length ? partial : cmds.slice(0, -1)));
-  // wrong rotation direction
-  const wrong = clone(answer);
-  if (wrong.objects[0]) wrong.objects[0].rot = (((wrong.objects[0].rot + 90) % 360) as FigObj['rot']);
-  cands.push(wrong);
-  // next-state (apply first cmd twice)
-  cands.push(applyCommand(clone(answer), cmds[0]));
+/**
+ * Rule-grounded distractors, deduped by `visualKey` against the answer and each
+ * other. The visible fallback perturbations always supply four states.
+ */
+function chooseDistractors(
+  rng: Rng,
+  start: FigState,
+  answer: FigState,
+  commands: readonly CmdName[],
+): FigState[] {
+  const primary: FigState[] = [
+    // Whole list applied in reverse order.
+    applyPrimitives(start, sequenceOps([...commands].reverse(), expandCommand)),
+    // Last command dropped.
+    applyPrimitives(start, sequenceOps(commands.slice(0, -1), expandCommand)),
+    // The untouched start (typical "did nothing" error).
+    applyPrimitives(start, []),
+    // Correct sequence but rotated the wrong way.
+    applyPrimitives(answer, [{ op: 'rotate', deg: 270 }]),
+    // First command applied one extra time.
+    applyPrimitives(answer, expandCommand(commands[0])),
+  ];
+  return pickDistractors(rng, answer, primary);
+}
 
-  const seen = new Set([stateKey(answer)]);
-  const choices: FigState[] = [];
-  for (const c of rng.shuffle(cands)) {
-    const k = stateKey(c);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    choices.push(c);
-    if (choices.length === 4) break;
-  }
-  let guard = 0;
-  while (choices.length < 4 && guard++ < 40) {
-    const v = clone(answer);
-    v.objects[0].x = (answer.objects[0].x + guard * 13) % 110 + 5;
-    v.objects[0].rot = (((answer.objects[0].rot + guard * 90) % 360) as FigObj['rot']);
-    v.objects[0].fill = guard % 2 === 0 ? !answer.objects[0].fill : answer.objects[0].fill;
-    v.markerPos = ((answer.markerPos ?? 0) + guard) % 4;
-    const k = stateKey(v);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    choices.push(v);
-  }
-  const all = rng.shuffle([answer, ...choices]);
+export function generateCommands(opts: CommandsOpts): FigureProblem {
+  const rng = new Rng(opts.seed);
+  const difficulty = resolveDifficulty(rng, opts.difficulty);
+  const shape = rng.pick(MAIN_SHAPES);
+  const commands = pickCommands(rng, difficulty, shape);
+  const start = buildStart(rng, shape);
+  const ops = sequenceOps(commands, expandCommand);
+  const answer = applyPrimitives(start, ops);
+  const choices = rng.shuffle([answer, ...chooseDistractors(rng, start, answer, commands)]);
   return {
-    seed: opts.seed, subject: 'commands', difficulty, skillTags: cmdTags(cmds),
-    explanation: `命令を上から順に適用: ${cmds.map((c) => CMD_LABEL[c]).join(' → ')}。逆順・省略が典型誤答。`,
-    fingerprint: `commands|${cmds.join(',')}`,
-    frames: [start, answer], missingIndex: 1, choices: all,
-    correctIndex: all.indexOf(answer),
-    prompt: '命令列を適用した最終図形を選べ',
-    commandSeq: cmds.map((c) => CMD_LABEL[c]),
+    seed: opts.seed,
+    subject: 'commands',
+    difficulty,
+    skillTags: commandTags(commands),
+    explanation: `命令を上から順に適用する: ${commands
+      .map((command) => CMD_LABEL[command])
+      .join(' → ')}。逆順・一部省略・回転方向の誤りが典型的な誤答。`,
+    fingerprint: JSON.stringify(['commands', difficulty, start, ops, choices]),
+    prompt: PROMPT,
     start,
+    ops,
+    choices,
+    correctIndex: choices.findIndex((choice) => figureKey(choice) === figureKey(answer)),
+    commandLabels: commands.map((command) => CMD_LABEL[command]),
   };
 }
