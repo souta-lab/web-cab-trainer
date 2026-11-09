@@ -1,1 +1,97 @@
-{"arithmetic": ["sign-error", "order-of-operations", "inverse-error", "off-by-one", "near-value"], "cipher": ["partial-rule", "wrong-direction", "forgot-fill", "single-object", "prev-state"], "commands": ["reverse-order", "single-command", "forgot-toggle", "wrong-rotation-dir", "prev-state", "next-state"], "pattern": ["wrong-position", "wrong-rotation", "partial-rule", "prev-state", "next-state", "forgot-fill", "reverse-direction", "off-by-one-step"]}
+{
+  "meta": {
+    "updatedAt": "2026-09-14",
+    "policy": "構造のみ。問題文・画像の転載なし。全エントリは UNOFFICIAL（対策サイト・参考書の横断一致）。",
+    "citationKey": "citation は research/sources.json の id を参照。",
+    "note": "distractor id は taxonomy.json の語彙（solutionPrimitives / checkAxes / commands primitives / cipher figureOps）と対応させる。"
+  },
+  "arithmetic": {
+    "tag": "UNOFFICIAL",
+    "design": "逆算過程の誤り、または式の右辺値をそのまま選ぶ値。正解と同桁・近傍で設計する。",
+    "values": [
+      "rhs-as-answer",
+      "inverted-op",
+      "sign-slip",
+      "dropped-bracket-postfix",
+      "decimal-shift",
+      "lcm-slip",
+      "precedence-slip"
+    ],
+    "ja": {
+      "rhs-as-answer": "式の右辺（=b）をそのまま解答にした値",
+      "inverted-op": "逆算で加減・乗除を逆に適用した値",
+      "sign-slip": "移項の符号ミスによる値",
+      "dropped-bracket-postfix": "括弧を外した後に後置演算を誤った値",
+      "decimal-shift": "小数点位置のずれ（10倍/1/10）",
+      "lcm-slip": "分数・通分の最小公倍数ミス",
+      "precedence-slip": "演算順序の誤りによる値"
+    },
+    "citations": ["digmedia-312986", "eslook-cab", "careerpark-34858", "port-arithmetic-245007"]
+  },
+  "pattern": {
+    "tag": "UNOFFICIAL",
+    "design": "wrong-by-exactly-one-attribute",
+    "note": "正解から1属性だけずらした図。属性の語彙は checkAxes と同一。",
+    "axes": ["position", "count", "color", "shape", "size", "orientation"],
+    "values": [
+      "wrong-position",
+      "wrong-count",
+      "wrong-color",
+      "wrong-shape",
+      "wrong-size",
+      "wrong-orientation"
+    ],
+    "ja": {
+      "wrong-position": "位置だけ誤り（移動規則のずれ・往復の向き違い）",
+      "wrong-count": "要素数だけ誤り（増減の数え違い）",
+      "wrong-color": "塗り・色だけ誤り（反転/巡回のずれ）",
+      "wrong-shape": "図形種だけ誤り（巡回順のずれ）",
+      "wrong-size": "大小だけ誤り（大小交互のずれ）",
+      "wrong-orientation": "向きだけ誤り（回転角・鏡像軸のずれ）"
+    },
+    "citations": ["studypro-hosoku", "reashu-hosoku20", "digmedia-312986"]
+  },
+  "commands": {
+    "tag": "UNOFFICIAL",
+    "design": "処理順序・取消/削除の解決・反転軸の取り違えから作る最終図。",
+    "values": [
+      "double-blank",
+      "unapplied-flip",
+      "wrong-permutation",
+      "post-cancel-flip",
+      "wrong-neighbour",
+      "axis-swap"
+    ],
+    "ja": {
+      "double-blank": "削除対象が既に無い状態で削除を適用した図",
+      "unapplied-flip": "反転命令を1つ適用し忘れた図",
+      "wrong-permutation": "順序入替（R/S/J）の取り違えによる図",
+      "post-cancel-flip": "取消後の命令を適用してしまった図",
+      "wrong-neighbour": "前/次を逆に取った図形操作の図",
+      "axis-swap": "上下反転と左右反転の取り違え"
+    },
+    "citations": ["jitsumu-pdf", "studypro-meirei", "careerpark-meirei-106765", "port-meirei-10"]
+  },
+  "cipher": {
+    "tag": "UNOFFICIAL",
+    "design": "規則の同定ミスと適用順序のミスから作る出力図。",
+    "values": [
+      "gamma-delta-swap",
+      "non-commutative-order-error",
+      "partial-application",
+      "bad-inverse",
+      "assumed-rule",
+      "transcription-slip"
+    ],
+    "ja": {
+      "gamma-delta-swap": "規則の取り違え（別記号の規則を適用）",
+      "non-commutative-order-error": "非可換な規則の適用順序ミス",
+      "partial-application": "規則の一部だけ適用",
+      "bad-inverse": "逆算（後ろ向き推論）の誤り",
+      "assumed-rule": "例示から言えない規則を仮定",
+      "transcription-slip": "図形の写し間違い"
+    },
+    "note": "正解が選択肢に無い場合に選ぶ「該当なし」が、難関帯では選択肢に含まれる（distractorではなく選択肢仕様）。",
+    "citations": ["studypro-ango", "port-ango-5", "reashu-angou", "digmedia-312986"]
+  }
+}

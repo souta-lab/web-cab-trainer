@@ -14,7 +14,6 @@ import {
   expandCommand,
   expandPatternRule,
   render,
-  sequenceOps,
   solve,
   verifyArith,
 } from '../src/domain/recipe';
@@ -25,16 +24,18 @@ import type { ArithmeticProblem, FigState, FigureProblem, Primitive } from '../s
 import {
   ARITHMETIC_DECIMAL_WEIGHTS,
   CIPHER_COMPOSITION_WEIGHTS,
-  COMMAND_LENGTH_WEIGHTS,
+  COMMAND_COUNT_WEIGHTS,
+  COMMAND_FIGURE_COUNT_WEIGHTS,
   PATTERN_RULE_COUNT_WEIGHTS,
   aggregateTable,
   expectedShares,
   sampleArithmeticDecimal,
   sampleCipherComposition,
-  sampleCommandLength,
+  sampleCommandCount,
+  sampleCommandFigureCount,
   samplePatternRuleCount,
 } from '../src/generators/policy';
-import type { CipherComposition, CommandLengthBucket, RuleCount, WeightedTable } from '../src/generators/policy';
+import type { CipherComposition, CommandFigureCount, RuleCount, WeightedTable } from '../src/generators/policy';
 
 const num = (value: number): ArithNode => ({ kind: 'num', value });
 const unknownNode: ArithNode = { kind: 'unknown' };
@@ -48,7 +49,7 @@ const group = (inner: ArithNode): ArithNode => ({ kind: 'group', inner });
 
 const codes = (violations: { code: string }[]): string[] => violations.map((v) => v.code);
 
-const share = <T extends string>(map: Map<T, number>, key: T): number => map.get(key) ?? 0;
+const share = <T>(map: Map<T, number>, key: T): number => map.get(key) ?? 0;
 
 const stringKeyed = (table: WeightedTable<RuleCount>): WeightedTable<string> =>
   table.map(([value, weight]): readonly [string, number] => [String(value), weight]);
@@ -74,6 +75,12 @@ const ALL_PRIMITIVES: readonly Primitive[] = [
   { op: 'swapObjects' },
   { op: 'addDot', x: 60, y: 60 },
   { op: 'removeDot' },
+  { op: 'flipVAt', index: 1 },
+  { op: 'flipHAt', index: 1 },
+  { op: 'flip180At', index: 1 },
+  { op: 'deleteAt', index: 0 },
+  { op: 'swapWithPrevAt', index: 1 },
+  { op: 'reorder', order: [1, 0] },
 ];
 
 function freezeFigure(s: FigState): FigState {
@@ -115,6 +122,102 @@ describe('applyPrimitives', () => {
   it('is total on a main-less figure (no throw)', () => {
     const empty = freezeFigure({ objects: [], markerPos: 0 });
     expect(() => applyPrimitives(empty, ALL_PRIMITIVES)).not.toThrow();
+  });
+});
+
+describe('position-aware primitives', () => {
+  const column = (): FigState => ({
+    objects: [
+      { shape: 'arrow', x: 60, y: 18, rot: 0, fill: true, size: 22, flipH: false },
+      { shape: 'triangle', x: 60, y: 44, rot: 90, fill: false, size: 22, flipH: false },
+      { shape: 'square', x: 60, y: 70, rot: 0, fill: true, size: 22, flipH: false },
+    ],
+    markerPos: 0,
+  });
+
+  it('flipVAt mirrors one object: rot +180 and flipH toggled, others untouched', () => {
+    const out = applyPrimitives(column(), [{ op: 'flipVAt', index: 1 }]);
+    expect(out.objects[1]?.rot).toBe(270);
+    expect(out.objects[1]?.flipH).toBe(true);
+    expect(out.objects[0]?.rot).toBe(0);
+    expect(out.objects[0]?.flipH).toBe(false);
+  });
+
+  it('flipHAt mirrors one object horizontally only', () => {
+    const out = applyPrimitives(column(), [{ op: 'flipHAt', index: 1 }]);
+    expect(out.objects[1]?.rot).toBe(90);
+    expect(out.objects[1]?.flipH).toBe(true);
+    expect(out.objects[0]?.flipH).toBe(false);
+  });
+
+  it('flip180At rotates one object in place', () => {
+    const out = applyPrimitives(column(), [{ op: 'flip180At', index: 1 }]);
+    expect(out.objects[1]?.rot).toBe(270);
+    expect(out.objects[1]?.flipH).toBe(false);
+  });
+
+  it('deleteAt removes one object and shifts later objects up', () => {
+    const out = applyPrimitives(column(), [{ op: 'deleteAt', index: 0 }]);
+    expect(out.objects).toHaveLength(2);
+    expect(out.objects[0]?.shape).toBe('triangle');
+    expect(out.objects[1]?.shape).toBe('square');
+  });
+
+  it('swapWithPrevAt swaps positions and keeps shapes with their objects', () => {
+    const out = applyPrimitives(column(), [{ op: 'swapWithPrevAt', index: 2 }]);
+    expect(out.objects[2]?.shape).toBe('square');
+    expect(out.objects[2]?.y).toBe(44);
+    expect(out.objects[1]?.shape).toBe('triangle');
+    expect(out.objects[1]?.y).toBe(70);
+    expect(out.objects[0]?.y).toBe(18);
+  });
+
+  it('reorder takes the old object at order[i] into slot i', () => {
+    const out = applyPrimitives(column(), [{ op: 'reorder', order: [2, 1, 0] }]);
+    expect(out.objects[0]?.shape).toBe('square');
+    expect(out.objects[0]?.y).toBe(18);
+    expect(out.objects[0]?.fill).toBe(true);
+    expect(out.objects[2]?.shape).toBe('arrow');
+    expect(out.objects[2]?.y).toBe(70);
+    expect(out.objects[2]?.fill).toBe(true);
+  });
+
+  it('is total and pure for out-of-range indices and frozen input', () => {
+    const start = freezeFigure(column());
+    const before = figureKey(start);
+    const outOfRange: readonly Primitive[] = [
+      { op: 'flipVAt', index: -1 },
+      { op: 'flipHAt', index: 9 },
+      { op: 'flip180At', index: 3 },
+      { op: 'deleteAt', index: 3 },
+      { op: 'deleteAt', index: -1 },
+      { op: 'swapWithPrevAt', index: 0 },
+      { op: 'swapWithPrevAt', index: 7 },
+    ];
+    expect(() => applyPrimitives(start, outOfRange)).not.toThrow();
+    expect(figureKey(applyPrimitives(start, outOfRange))).toBe(before);
+    expect(figureKey(start)).toBe(before);
+  });
+
+  it('treats a length-mismatched or out-of-range reorder as a no-op', () => {
+    const start = freezeFigure(column());
+    const before = figureKey(start);
+    const invalid: readonly Primitive[] = [
+      { op: 'reorder', order: [0, 1] },
+      { op: 'reorder', order: [] },
+      { op: 'reorder', order: [0, 1, 7] },
+      { op: 'reorder', order: [-1, 0, 1] },
+    ];
+    expect(() => applyPrimitives(start, invalid)).not.toThrow();
+    expect(figureKey(applyPrimitives(start, invalid))).toBe(before);
+    expect(figureKey(start)).toBe(before);
+  });
+
+  it('keeps a duplicate-index reorder total (never throws, never reuses a slot)', () => {
+    const start = freezeFigure(column());
+    const out = applyPrimitives(start, [{ op: 'reorder', order: [0, 0, 1] }]);
+    expect(out.objects).toHaveLength(3);
+    expect(figureKey(start)).toBe(figureKey(column()));
   });
 });
 
@@ -173,15 +276,22 @@ describe('policy distribution', () => {
       expect(Math.abs(share(pattern, String(key)) - expected.patternRuleCount[key])).toBeLessThan(0.02);
     }
 
-    const cmd = aggregateTable([
-      COMMAND_LENGTH_WEIGHTS[1],
-      COMMAND_LENGTH_WEIGHTS[2],
-      COMMAND_LENGTH_WEIGHTS[3],
+    const figures = aggregateTable([
+      COMMAND_FIGURE_COUNT_WEIGHTS[1],
+      COMMAND_FIGURE_COUNT_WEIGHTS[2],
+      COMMAND_FIGURE_COUNT_WEIGHTS[3],
     ]);
-    const cmdKeys: readonly CommandLengthBucket[] = ['1-2', '3-4', '5+'];
-    for (const key of cmdKeys) {
-      expect(Math.abs(share(cmd, key) - expected.commandLength[key])).toBeLessThan(0.02);
+    const figureKeys: readonly CommandFigureCount[] = [2, 3, 4];
+    for (const key of figureKeys) {
+      expect(Math.abs(share(figures, key) - expected.commandFigureCount[key])).toBeLessThan(0.02);
     }
+
+    const overflow = aggregateTable([
+      COMMAND_COUNT_WEIGHTS[1],
+      COMMAND_COUNT_WEIGHTS[2],
+      COMMAND_COUNT_WEIGHTS[3],
+    ]);
+    expect(Math.abs(share(overflow, true) - expected.commandOverflow)).toBeLessThan(0.02);
 
     const cipher = aggregateTable([
       CIPHER_COMPOSITION_WEIGHTS[1],
@@ -203,13 +313,16 @@ describe('policy distribution', () => {
     const rng = new Rng(20240912);
     const n = 50000;
     const pattern: Record<RuleCount, number> = { 1: 0, 2: 0, 3: 0 };
-    const command: Record<CommandLengthBucket, number> = { '1-2': 0, '3-4': 0, '5+': 0 };
+    const figures: Record<CommandFigureCount, number> = { 2: 0, 3: 0, 4: 0 };
+    let overflow = 0;
     const cipher: Record<CipherComposition, number> = { single: 0, multi: 0 };
     let decimal = 0;
     for (let i = 0; i < n; i++) {
       const difficulty = rng.pick(DIFFICULTIES);
       pattern[samplePatternRuleCount(rng, difficulty)]++;
-      command[sampleCommandLength(rng, difficulty)]++;
+      const figureCount = sampleCommandFigureCount(rng, difficulty);
+      figures[figureCount]++;
+      if (sampleCommandCount(rng, difficulty, figureCount) === figureCount + 1) overflow++;
       cipher[sampleCipherComposition(rng, difficulty)]++;
       if (sampleArithmeticDecimal(rng, difficulty)) decimal++;
     }
@@ -217,9 +330,10 @@ describe('policy distribution', () => {
     expect(Math.abs(pattern[1] / n - expected.patternRuleCount[1])).toBeLessThan(0.03);
     expect(Math.abs(pattern[2] / n - expected.patternRuleCount[2])).toBeLessThan(0.03);
     expect(Math.abs(pattern[3] / n - expected.patternRuleCount[3])).toBeLessThan(0.03);
-    expect(Math.abs(command['1-2'] / n - expected.commandLength['1-2'])).toBeLessThan(0.03);
-    expect(Math.abs(command['3-4'] / n - expected.commandLength['3-4'])).toBeLessThan(0.03);
-    expect(Math.abs(command['5+'] / n - expected.commandLength['5+'])).toBeLessThan(0.03);
+    expect(Math.abs(figures[2] / n - expected.commandFigureCount[2])).toBeLessThan(0.03);
+    expect(Math.abs(figures[3] / n - expected.commandFigureCount[3])).toBeLessThan(0.03);
+    expect(Math.abs(figures[4] / n - expected.commandFigureCount[4])).toBeLessThan(0.03);
+    expect(Math.abs(overflow / n - expected.commandOverflow)).toBeLessThan(0.03);
     expect(Math.abs(cipher.single / n - expected.cipherComposition.single)).toBeLessThan(0.03);
     expect(Math.abs(decimal / n - expected.arithmeticDecimal)).toBeLessThan(0.03);
   });
@@ -267,13 +381,25 @@ describe('arithmetic recipe', () => {
 });
 
 describe('rule expansion', () => {
-  it('expands commands 1:1 and includes RemoveDot', () => {
-    expect(expandCommand('RemoveDot')).toEqual([{ op: 'removeDot' }]);
-    expect(expandCommand('MoveMarker')).toEqual([{ op: 'moveMarker', delta: 1 }]);
-    expect(sequenceOps(['Rotate90', 'ToggleFill'] as const, expandCommand)).toEqual([
-      { op: 'rotate', deg: 90 },
-      { op: 'toggleFill' },
-    ]);
+  it('expands position-aware commands against the given index and figure count', () => {
+    expect(expandCommand('FlipV', 1, 4)).toEqual([{ op: 'flipVAt', index: 1 }]);
+    expect(expandCommand('FlipH', 3, 4)).toEqual([{ op: 'flipHAt', index: 3 }]);
+    expect(expandCommand('Flip180', 0, 4)).toEqual([{ op: 'flip180At', index: 0 }]);
+    expect(expandCommand('SwapPrev', 2, 4)).toEqual([{ op: 'swapWithPrevAt', index: 2 }]);
+    expect(expandCommand('DeletePrev', 0, 4)).toEqual([]);
+    expect(expandCommand('DeletePrev', 1, 4)).toEqual([{ op: 'deleteAt', index: 0 }]);
+    expect(expandCommand('DeleteNext', 3, 4)).toEqual([]);
+    expect(expandCommand('DeleteNext', 2, 4)).toEqual([{ op: 'deleteAt', index: 3 }]);
+    expect(expandCommand('CancelPrevCommand', 1, 4)).toEqual([]);
+    expect(expandCommand('CancelNextCommand', 2, 4)).toEqual([]);
+  });
+
+  it('expands reorder commands to permutations of the current figure count', () => {
+    expect(expandCommand('ReorderR', 0, 4)).toEqual([{ op: 'reorder', order: [3, 2, 1, 0] }]);
+    expect(expandCommand('ReorderS', 0, 4)).toEqual([{ op: 'reorder', order: [2, 3, 0, 1] }]);
+    expect(expandCommand('ReorderJ', 0, 4)).toEqual([{ op: 'reorder', order: [1, 0, 3, 2] }]);
+    expect(expandCommand('ReorderJ', 0, 3)).toEqual([{ op: 'reorder', order: [1, 0, 2] }]);
+    expect(expandCommand('ReorderS', 0, 2)).toEqual([{ op: 'reorder', order: [1, 0] }]);
   });
 
   it('expands pattern and cipher rules', () => {

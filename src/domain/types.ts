@@ -67,7 +67,15 @@ export type Primitive =
   | { op: 'moveMarker'; delta: 1 | -1 }
   | { op: 'swapObjects' }
   | { op: 'addDot'; x: number; y: number }
-  | { op: 'removeDot' };
+  | { op: 'removeDot' }
+  // Position-aware ops for the 命令表 column model. Targets are array indices;
+  // an out-of-range index (or a length-mismatched `reorder`) is a no-op.
+  | { op: 'flipVAt'; index: number }
+  | { op: 'flipHAt'; index: number }
+  | { op: 'flip180At'; index: number }
+  | { op: 'deleteAt'; index: number }
+  | { op: 'swapWithPrevAt'; index: number }
+  | { op: 'reorder'; order: readonly number[] };
 
 export interface BaseProblem {
   seed: number;
@@ -104,8 +112,13 @@ export interface FigureProblem extends BaseProblem {
   missingIndex?: number;
   /** cipher only: example pairs (Input A -> Output A). */
   examples?: { input: FigState; output: FigState }[];
-  /** commands only: human-readable command labels in order. */
+  /** commands only: surviving commands in execution order. */
   commandLabels?: string[];
+  /**
+   * commands only: each surviving command with the figure slot it sits under
+   * (`null` = the appended global reorder), in execution order.
+   */
+  commandPlan?: readonly { readonly label: string; readonly slot: number | null }[];
 }
 
 export type Problem = ArithmeticProblem | FigureProblem;

@@ -1,1 +1,371 @@
-{"arithmetic": {"note": "式コピーではなく構造のみ記録。x先行生成を採用", "operators": ["+", "-", "*", "/"], "templates": [{"operands": 2, "ops": 1, "share": 0.34, "unknownPositions": ["left", "right"]}, {"operands": 3, "ops": 2, "parens": false, "share": 0.33, "unknownPositions": ["left", "middle", "right"]}, {"operands": 3, "ops": 2, "parens": true, "share": 0.2, "unknownPositions": ["left", "inner"]}, {"decimals": true, "operands": 3, "ops": 2, "share": 0.13}]}, "cipher": {"compositions": {"multi": 0.35, "single": 0.65}, "primitives": ["rotation", "reflection", "fill-inversion", "position-move", "deletion", "addition", "inside-outside", "count-mod", "shape-map"]}, "commands": {"length": {"1-2": 0.3, "3-4": 0.5, "5+": 0.2}, "primitives": ["rotate90", "rotate180", "flip-h", "flip-v", "toggle-fill", "swap-pos", "move-marker", "add-dot", "remove-dot", "cancel-prev", "swap-order"]}, "pattern": {"compositions": {"1-rule": 0.25, "2-rule": 0.58, "3-rule": 0.17}, "rules": ["rotation", "translation", "reflection", "fill-toggle", "count-inc", "count-dec", "shape-cycle", "position-cycle", "add-remove", "inside-outside", "alternation", "interleave"]}}
+{
+  "meta": {
+    "version": "2.0.0",
+    "updatedAt": "2026-09-14",
+    "policy": "構造のみ。問題文・画像の転載なし。tag: OFFICIAL=日本SHL公式、UNOFFICIAL=対策サイト・参考書の横断一致。",
+    "citationKey": "citation は research/sources.json の id を参照。",
+    "modules": {
+      "tag": "OFFICIAL",
+      "values": ["四則逆算", "法則性", "命令表", "暗号"],
+      "opq": "パーソナリティ（OPQ）",
+      "citation": "shl-official-cab"
+    },
+    "totalTimeMinutes": {
+      "tag": "OFFICIAL",
+      "min": 72,
+      "max": 95,
+      "note": "形式（紙/Web/テストセンター）による合計時間レンジ。科目別の配分は非公開。",
+      "citation": "shl-official-cab"
+    },
+    "norm": {
+      "tag": "OFFICIAL",
+      "value": "大卒",
+      "citation": "shl-official-cab"
+    },
+    "scoreScale": {
+      "tag": "OFFICIAL",
+      "value": "標準点10段階",
+      "citation": "shl-column-20250926"
+    },
+    "adaptivity": {
+      "tag": "OFFICIAL",
+      "adaptive": false,
+      "note": "固定の問題セット。公式ページに「適応型」の記載なし（2026-09-14確認）。非適応型とする対策サイトの記述あり（UNOFFICIAL: paiza-webcab-practice）。本題前に例題・練習問題がある（OFFICIAL: shl-column-20250926）。",
+      "citations": ["shl-official-cab", "shl-column-20250926", "paiza-webcab-practice"]
+    },
+    "verifyGPlus": {
+      "tag": "OFFICIAL",
+      "sameProduct": false,
+      "note": "英語圏の Verify G+ はSHLのグローバル向け別商品（適応型）。CABは英国開発形式を日本語ローカライズした国内向け商品で、同一である旨の公式記述はない。",
+      "citations": ["shl-column-20250926", "shl-column-220617"]
+    },
+    "perSubjectCounts": {
+      "tag": "UNOFFICIAL",
+      "officiallyPublished": false,
+      "note": "科目別の問題数・制限時間は公式非公開。以下はすべて対策サイトの横断一致値。",
+      "citation": "paiza-webcab-practice"
+    }
+  },
+  "arithmetic": {
+    "module": {
+      "tag": "OFFICIAL",
+      "nameJa": "四則逆算",
+      "cabCode": "CAB1",
+      "officialLabel": "計数理解",
+      "citation": "shl-column-220315"
+    },
+    "preset": {
+      "tag": "UNOFFICIAL",
+      "web": { "questions": 50, "minutes": 9 },
+      "paper": { "questions": 50, "minutes": 10 },
+      "citation": "paiza-webcab-practice"
+    },
+    "unknownPositions": {
+      "tag": "UNOFFICIAL",
+      "values": ["left-first", "left-second", "right", "both-sides", "divisor", "two-occurrences", "inside-parens"],
+      "citations": ["paiza-webcab-practice", "port-arithmetic-245007", "eslook-cab"]
+    },
+    "numericTypes": {
+      "tag": "UNOFFICIAL",
+      "values": ["integer", "decimal", "fraction", "percent", "multi-unknown"],
+      "citations": ["paiza-webcab-practice", "digmedia-312986"]
+    },
+    "forms": {
+      "tag": "UNOFFICIAL",
+      "note": "構造テンプレートの記法（□=未知数、a〜d=既知数）。数値・問題文の転載なし。",
+      "examples": [
+        "□+a=b",
+        "□−a=b",
+        "a−□=b",
+        "□×a=b",
+        "□÷a=b",
+        "a÷□=b",
+        "□×a=b−c",
+        "(□+a)×b−c=d",
+        "a÷(□−b)=c",
+        "□×(a−b)=c",
+        "m□+m=m(...)",
+        "□×(1/2+1/3)=c",
+        "□÷a×1/3=2^3"
+      ],
+      "citations": ["paiza-webcab-practice", "port-arithmetic-245007", "digmedia-312986", "onecareer-819"]
+    },
+    "solutionPrimitives": {
+      "tag": "UNOFFICIAL",
+      "values": ["transpose", "inverse-op", "distribute", "paren-as-block", "integerize", "reduce", "ratio", "estimate"],
+      "citations": ["paiza-webcab-practice", "digmedia-312986", "careermine-cab"]
+    },
+    "difficultyTiers": {
+      "tag": "UNOFFICIAL",
+      "values": ["basic", "applied", "production"],
+      "note": "basic=1演算の逆算、applied=2〜3演算・括弧・小数、production=長い連鎖・分数・複合。",
+      "citations": ["paiza-webcab-practice", "eslook-cab", "onecareer-819"]
+    },
+    "distractors": {
+      "tag": "UNOFFICIAL",
+      "values": ["rhs-as-answer", "inverted-op", "sign-slip", "dropped-bracket-postfix", "decimal-shift", "lcm-slip", "precedence-slip"],
+      "citations": ["digmedia-312986", "eslook-cab", "careerpark-34858"]
+    },
+    "scoring": {
+      "tag": "UNOFFICIAL",
+      "negativeMarking": false,
+      "unanswered": 0,
+      "citation": "paiza-webcab-practice"
+    }
+  },
+  "pattern": {
+    "module": {
+      "tag": "OFFICIAL",
+      "nameJa": "法則性",
+      "cabCode": "CAB2",
+      "officialLabel": "直観的推理",
+      "citation": "shl-column-220315"
+    },
+    "preset": {
+      "tag": "UNOFFICIAL",
+      "web": { "questions": 30, "minutes": 12 },
+      "paper": { "questions": 40, "minutes": 15 },
+      "citation": "paiza-webcab-practice"
+    },
+    "rules": {
+      "tag": "UNOFFICIAL",
+      "values": [
+        "rotation",
+        "rotation-increasing",
+        "movement-corner-cycle",
+        "movement-edge-cycle",
+        "movement-reciprocal",
+        "movement-diagonal",
+        "count-increase",
+        "count-decrease",
+        "line-count",
+        "shape-cycle",
+        "inside-outside",
+        "color-invert",
+        "color-alternate",
+        "color-sequential",
+        "size-alternate",
+        "mirror-h",
+        "mirror-v",
+        "stretch",
+        "appear-disappear",
+        "angle-growth",
+        "space-rotation"
+      ],
+      "notes": {
+        "movement-reciprocal": "往復（行って戻る）移動。古典的な引っかけ。"
+      },
+      "citations": ["studypro-hosoku", "reashu-hosoku20", "port-hosoku-248318", "noahs-ark-hosoku"]
+    },
+    "compositions": {
+      "tag": "UNOFFICIAL",
+      "values": { "1-rule": 0.25, "2-rule": 0.58, "3-rule": 0.17 },
+      "simultaneousMax": 4,
+      "fourRule": {
+        "exists": true,
+        "inShareSplit": false,
+        "note": "同時4個は難関帯に存在するが、現行のshare split（1/2/3-rule）には含まれない。"
+      },
+      "note": "軸は「同時に働く個数」（StudyProの1個/2個/4個ラベル）。「複合度」は公表語ではない（訂正）。",
+      "citations": ["studypro-hosoku", "studypro-hub", "port-19patterns"]
+    },
+    "checkAxes": {
+      "tag": "UNOFFICIAL",
+      "values": ["position", "count", "color", "shape", "size", "orientation"],
+      "citation": "studypro-hosoku"
+    },
+    "distractorDesign": {
+      "tag": "UNOFFICIAL",
+      "value": "wrong-by-exactly-one-attribute",
+      "note": "誤答は正解から1属性だけずらす。属性は checkAxes と同語彙。",
+      "citations": ["studypro-hosoku", "digmedia-312986"]
+    }
+  },
+  "commands": {
+    "module": {
+      "tag": "OFFICIAL",
+      "nameJa": "命令表",
+      "cabCode": "CAB3",
+      "officialLabel": "プログラミング言語",
+      "citation": "shl-column-220315"
+    },
+    "preset": {
+      "tag": "UNOFFICIAL",
+      "web": { "questions": 36, "minutes": 15 },
+      "paper": { "questions": 50, "minutes": 20 },
+      "citation": "paiza-webcab-practice"
+    },
+    "primitives": {
+      "tag": "UNOFFICIAL",
+      "values": [
+        "flip-v",
+        "flip-h",
+        "flip-180",
+        "delete-prev",
+        "delete-next",
+        "swap-prev",
+        "cancel-prev-command",
+        "cancel-next-command",
+        "reorder"
+      ],
+      "ja": {
+        "flip-v": "上下反転",
+        "flip-h": "左右反転",
+        "flip-180": "上下左右反転",
+        "delete-prev": "前の図形を消す",
+        "delete-next": "次の図形を消す",
+        "swap-prev": "前の図形と入れかえる",
+        "cancel-prev-command": "前の命令を取り消す",
+        "cancel-next-command": "次の命令を取り消す",
+        "reorder": "順序入れかえ"
+      },
+      "mnemonics": { "swap-prev": "G" },
+      "reorderVariants": { "R": "1..n→逆順", "S": "前半後半入替", "J": "隣接ペア入替" },
+      "citations": ["jitsumu-pdf", "studypro-meirei", "noahs-ark-instruction"]
+    },
+    "excludedPrimitives": {
+      "tag": "UNOFFICIAL",
+      "values": ["rotation", "fill-toggle", "move", "add-dot"],
+      "note": "これらは命令表のプリミティブではない。回転・塗りは法則性、位置移動・記号増減は暗号側の語彙。",
+      "belongsTo": ["pattern", "cipher"],
+      "citations": ["jitsumu-pdf", "studypro-meirei", "noahs-ark-instruction"]
+    },
+    "structure": {
+      "tag": "UNOFFICIAL",
+      "figuresPerItem": { "min": 2, "max": 4, "fourShare": 0.9 },
+      "commandCount": { "min": 2, "max": 5 },
+      "figuresPlusOneShare": 0.8,
+      "note": "figures+1 命令（>80%）が典型。命令数は図形数に従属する。",
+      "citations": ["jitsumu-pdf", "port-meirei-10", "noahs-ark-instruction-test"]
+    },
+    "processingPolicy": {
+      "tag": "UNOFFICIAL",
+      "order": ["cancels", "deletes", "flips", "swaps", "reorder"],
+      "note": "取消を先に解決し、次に削除、反転、入替、順序入替の順で適用する。",
+      "citations": ["studypro-meirei", "careerpark-meirei-106765", "noahs-ark-instruction"]
+    },
+    "distractors": {
+      "tag": "UNOFFICIAL",
+      "values": ["double-blank", "unapplied-flip", "wrong-permutation", "post-cancel-flip", "wrong-neighbour", "axis-swap"],
+      "citations": ["studypro-meirei", "careerpark-meirei-106765", "port-meirei-10"]
+    },
+    "scoring": {
+      "tag": "UNOFFICIAL",
+      "negativeMarking": false,
+      "unanswered": 0,
+      "citation": "paiza-webcab-practice"
+    }
+  },
+  "cipher": {
+    "module": {
+      "tag": "OFFICIAL",
+      "nameJa": "暗号",
+      "cabCode": "CAB4",
+      "officialLabel": "構造理解",
+      "citation": "shl-column-220315"
+    },
+    "preset": {
+      "tag": "UNOFFICIAL",
+      "web": { "questions": 30, "minutes": 16 },
+      "paper": { "questions": 39, "minutes": 20 },
+      "citation": "paiza-webcab-practice"
+    },
+    "figureOps": {
+      "tag": "UNOFFICIAL",
+      "values": [
+        "rotation-90cw",
+        "rotation-90ccw",
+        "rotation-180",
+        "mirror-h",
+        "mirror-v",
+        "invert-fill",
+        "scale",
+        "inside-outside",
+        "move",
+        "count-increase",
+        "count-decrease",
+        "shape-replace",
+        "add-element",
+        "delete-element",
+        "combine"
+      ],
+      "ja": {
+        "rotation-90cw": "90度回転（時計回り）",
+        "rotation-90ccw": "90度回転（反時計回り）",
+        "rotation-180": "180度回転",
+        "mirror-h": "左右反転",
+        "mirror-v": "上下反転",
+        "invert-fill": "塗り反転（部分適用あり）",
+        "scale": "大小変換",
+        "inside-outside": "内外入替",
+        "move": "位置移動",
+        "count-increase": "記号増加",
+        "count-decrease": "記号減少",
+        "shape-replace": "図形置換",
+        "add-element": "要素追加",
+        "delete-element": "要素削除",
+        "combine": "合成"
+      },
+      "citations": ["jitsumu-pdf", "studypro-ango", "port-ango-5", "reashu-angou"]
+    },
+    "structureRules": {
+      "tag": "UNOFFICIAL",
+      "values": ["one-diagram-three-questions-block", "symbol-meaning-block-local", "same-colour-arrow-only"],
+      "notes": {
+        "one-diagram-three-questions-block": "1つの暗号図 + 連動する3設問 = 1ブロック。",
+        "symbol-meaning-block-local": "記号の意味はブロック内でのみ有効。",
+        "same-colour-arrow-only": "黒/白の矢印があり、暗号は同じ色の矢印に沿ってのみ作用する。"
+      },
+      "citations": ["studypro-ango", "port-ango-5", "reashu-angou"]
+    },
+    "composition": {
+      "tag": "UNOFFICIAL",
+      "chainLength": { "min": 1, "max": 4 },
+      "modes": ["single", "multi"],
+      "inference": ["forward", "reverse"],
+      "noneOption": { "exists": true, "condition": "hard items" },
+      "citations": ["studypro-ango", "port-ango-5"]
+    },
+    "groupB": {
+      "tag": "UNOFFICIAL",
+      "status": "optional-secondary",
+      "operations": ["shift", "substitute", "reverse", "numbering"],
+      "note": "文字列・数値の暗号群。CAB本試験としての裏付けは弱く、任意扱い。",
+      "citations": ["reashu-angou", "careerpark-34858"]
+    },
+    "distractors": {
+      "tag": "UNOFFICIAL",
+      "values": ["gamma-delta-swap", "non-commutative-order-error", "partial-application", "bad-inverse", "assumed-rule", "transcription-slip"],
+      "notes": {
+        "gamma-delta-swap": "規則の取り違え（別記号の規則を適用）。",
+        "assumed-rule": "例示から言えない規則を仮定して解く。"
+      },
+      "citations": ["studypro-ango", "port-ango-5", "digmedia-312986"]
+    },
+    "scoring": {
+      "tag": "UNOFFICIAL",
+      "negativeMarking": false,
+      "unanswered": 0,
+      "citation": "paiza-webcab-practice"
+    }
+  },
+  "opq": {
+    "module": {
+      "tag": "OFFICIAL",
+      "nameJa": "パーソナリティ（OPQ）",
+      "officialLabel": "OPQ",
+      "citation": "shl-official-cab"
+    },
+    "preset": {
+      "tag": "UNOFFICIAL",
+      "web": { "questions": 68, "minutes": 30 },
+      "citation": "paiza-webcab-practice"
+    },
+    "format": {
+      "tag": "OFFICIAL",
+      "value": "強制選択（forced-choice）で社会的望ましさバイアスを抑制",
+      "note": "ipsative という用語は対策サイトの表現（UNOFFICIAL）。",
+      "citations": ["shl-column-20250926"]
+    }
+  }
+}

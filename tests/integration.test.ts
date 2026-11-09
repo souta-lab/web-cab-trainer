@@ -68,10 +68,11 @@ describe('integration: generateProblem pipeline', () => {
 });
 
 describe('integration: generator output matches policy targets', () => {
-  it('pattern rule count, command length and cipher composition aggregate to expectedShares', () => {
+  it('pattern rule count, command figure/command count and cipher composition aggregate to expectedShares', () => {
     const n = 30000;
     const pattern: Record<1 | 2 | 3, number> = { 1: 0, 2: 0, 3: 0 };
-    const command: Record<'1-2' | '3-4' | '5+', number> = { '1-2': 0, '3-4': 0, '5+': 0 };
+    const figures: Record<2 | 3 | 4, number> = { 2: 0, 3: 0, 4: 0 };
+    let commandOverflow = 0;
     const cipher: Record<'single' | 'multi', number> = { single: 0, multi: 0 };
 
     for (let seed = 1_000_000; seed < 1_000_000 + n; seed++) {
@@ -83,10 +84,9 @@ describe('integration: generator output matches policy targets', () => {
 
       const c = generateProblem('commands', seed);
       if (c.subject !== 'commands') throw new Error('unreachable subject');
-      const length = c.commandLabels?.length ?? 0;
-      if (length >= 5) command['5+']++;
-      else if (length >= 3) command['3-4']++;
-      else command['1-2']++;
+      const count = c.start.objects.length;
+      if (count === 2 || count === 3 || count === 4) figures[count]++;
+      if ((c.commandPlan ?? []).some((entry) => entry.slot === null)) commandOverflow++;
 
       const e = generateProblem('cipher', seed);
       if (e.subject !== 'cipher') throw new Error('unreachable subject');
@@ -99,9 +99,10 @@ describe('integration: generator output matches policy targets', () => {
     expect(Math.abs(pattern[1] / n - expected.patternRuleCount[1])).toBeLessThan(0.06);
     expect(Math.abs(pattern[2] / n - expected.patternRuleCount[2])).toBeLessThan(0.06);
     expect(Math.abs(pattern[3] / n - expected.patternRuleCount[3])).toBeLessThan(0.06);
-    expect(Math.abs(command['1-2'] / n - expected.commandLength['1-2'])).toBeLessThan(0.06);
-    expect(Math.abs(command['3-4'] / n - expected.commandLength['3-4'])).toBeLessThan(0.06);
-    expect(Math.abs(command['5+'] / n - expected.commandLength['5+'])).toBeLessThan(0.06);
+    expect(Math.abs(figures[2] / n - expected.commandFigureCount[2])).toBeLessThan(0.06);
+    expect(Math.abs(figures[3] / n - expected.commandFigureCount[3])).toBeLessThan(0.06);
+    expect(Math.abs(figures[4] / n - expected.commandFigureCount[4])).toBeLessThan(0.06);
+    expect(Math.abs(commandOverflow / n - expected.commandOverflow)).toBeLessThan(0.06);
     expect(Math.abs(cipher.single / n - expected.cipherComposition.single)).toBeLessThan(0.06);
     expect(Math.abs(cipher.multi / n - expected.cipherComposition.multi)).toBeLessThan(0.06);
   }, 120000);
@@ -136,15 +137,17 @@ describe('integration: figure shape variety and per-shape visibility', () => {
   type MainShape = Extract<FigObj['shape'], 'circle' | 'square' | 'triangle' | 'arrow'>;
   const MAIN_SHAPES: readonly MainShape[] = ['circle', 'square', 'triangle', 'arrow'];
   const ALL_COMMANDS: readonly CmdName[] = [
-    'Rotate90',
-    'Rotate180',
-    'FlipH',
     'FlipV',
-    'ToggleFill',
-    'SwapPos',
-    'MoveMarker',
-    'AddDot',
-    'RemoveDot',
+    'FlipH',
+    'Flip180',
+    'DeletePrev',
+    'DeleteNext',
+    'SwapPrev',
+    'CancelPrevCommand',
+    'CancelNextCommand',
+    'ReorderR',
+    'ReorderS',
+    'ReorderJ',
   ];
   const ALL_CIPHER_RULES: readonly CipherRule['type'][] = [
     'rotation',
@@ -169,12 +172,6 @@ describe('integration: figure shape variety and per-shape visibility', () => {
       circle: ['toggleFill', 'swapObjects', 'moveMarker', 'addDot'],
     },
   };
-  const VISIBLE_COMMANDS: Record<MainShape, readonly CmdName[]> = {
-    arrow: ALL_COMMANDS,
-    triangle: ['Rotate90', 'Rotate180', 'ToggleFill', 'SwapPos', 'MoveMarker', 'AddDot', 'RemoveDot'],
-    square: ['ToggleFill', 'SwapPos', 'MoveMarker', 'AddDot', 'RemoveDot'],
-    circle: ['ToggleFill', 'SwapPos', 'MoveMarker', 'AddDot', 'RemoveDot'],
-  };
   const LABEL_TO_COMMAND = new Map<string, CmdName>(
     ALL_COMMANDS.map((command): [string, CmdName] => [CMD_LABEL[command], command]),
   );
@@ -194,20 +191,38 @@ describe('integration: figure shape variety and per-shape visibility', () => {
     }
   }
 
-  it('restores shape variety: all four main shapes appear for every figure subject', () => {
+  it('restores shape variety: every figure subject uses its shape vocabulary', () => {
+    const commandShapes = new Set<MainShape>();
+    const seen = new Map<string, Set<MainShape>>();
     for (const subject of figureSubjects) {
-      const seen = new Set<MainShape>();
+      const perSubject = new Set<MainShape>();
+      seen.set(subject, perSubject);
       for (let seed = 1; seed <= 1000; seed++) {
         const shape = mainShapeOf(generateProblem(subject, seed));
-        if (shape !== null) seen.add(shape);
+        if (shape !== null) perSubject.add(shape);
       }
+    }
+    for (const subject of ['pattern', 'cipher'] as const) {
       for (const shape of MAIN_SHAPES) {
-        expect(seen.has(shape), `${subject} never used ${shape}`).toBe(true);
+        expect(seen.get(subject)?.has(shape), `${subject} never used ${shape}`).toBe(true);
       }
+    }
+    for (let seed = 1; seed <= 1000; seed++) {
+      const commands = generateProblem('commands', seed);
+      if (commands.subject !== 'commands') throw new Error('unreachable subject');
+      for (const object of commands.start.objects) {
+        if (object.shape !== 'circle' && object.shape !== 'dot' && object.shape !== 'line') {
+          const shape: MainShape = object.shape;
+          commandShapes.add(shape);
+        }
+      }
+    }
+    for (const shape of MAIN_SHAPES.filter((s) => s !== 'circle')) {
+      expect(commandShapes.has(shape), `commands never used ${shape}`).toBe(true);
     }
   }, 120000);
 
-  it('keeps all nine commands and all six cipher rules reachable across seeds', () => {
+  it('keeps all eleven commands and all six cipher rules reachable across seeds', () => {
     const commandsSeen = new Set<string>();
     const cipherRulesSeen = new Set<string>();
     for (let seed = 1; seed <= 2000; seed++) {
@@ -251,27 +266,39 @@ describe('integration: figure shape variety and per-shape visibility', () => {
     }
   }, 120000);
 
-  it('applies only rules and commands that are visible for the main shape', () => {
-    for (let seed = 1; seed <= 1000; seed++) {
-      for (const subject of figureSubjects) {
+  it('attaches every command to a real figure slot in the commands column', () => {
+    for (let seed = 1; seed <= 2000; seed++) {
+      const problem = generateProblem('commands', seed);
+      if (problem.subject !== 'commands') throw new Error('unreachable subject');
+      const tag = `commands seed=${seed}`;
+      const figureCount = problem.start.objects.length;
+      const plan = problem.commandPlan ?? [];
+      expect(plan.map((entry) => entry.label), tag).toEqual(problem.commandLabels ?? []);
+      for (const entry of plan) {
+        const command = LABEL_TO_COMMAND.get(entry.label);
+        if (command === undefined) throw new Error(`unknown command label: ${entry.label}`);
+        if (entry.slot === null) {
+          expect(['ReorderR', 'ReorderS', 'ReorderJ'].includes(command), tag).toBe(true);
+        } else {
+          expect(entry.slot >= 0 && entry.slot < figureCount, tag).toBe(true);
+        }
+      }
+      const figureSlots = plan.map((entry) => entry.slot).filter((slot): slot is number => slot !== null);
+      expect(new Set(figureSlots).size, tag).toBe(figureSlots.length);
+    }
+  }, 120000);
+
+  it('applies only rules that are visible for the main shape (pattern/cipher)', () => {
+    for (const subject of ['pattern', 'cipher'] as const) {
+      for (let seed = 1; seed <= 1000; seed++) {
         const problem = generateProblem(subject, seed);
         const shape = mainShapeOf(problem);
         if (shape === null) throw new Error(`missing main shape: ${subject} seed=${seed}`);
+        if (problem.subject === 'arithmetic') throw new Error('unreachable subject');
         const tag = `${subject} seed=${seed} shape=${shape}`;
-        if (subject === 'commands') {
-          const visible = VISIBLE_COMMANDS[shape];
-          if (problem.subject !== 'commands') throw new Error('unreachable subject');
-          for (const commandLabel of problem.commandLabels ?? []) {
-            const command = LABEL_TO_COMMAND.get(commandLabel);
-            if (command === undefined) throw new Error(`unknown command label: ${commandLabel}`);
-            expect(visible.includes(command), `${tag} command=${command}`).toBe(true);
-          }
-        } else {
-          const visible = VISIBLE_OPS[subject][shape];
-          if (problem.subject === 'arithmetic') throw new Error('unreachable subject');
-          for (const op of problem.ops) {
-            expect(visible.includes(op.op), `${tag} op=${op.op}`).toBe(true);
-          }
+        const visible = VISIBLE_OPS[subject][shape];
+        for (const op of problem.ops) {
+          expect(visible.includes(op.op), `${tag} op=${op.op}`).toBe(true);
         }
       }
     }

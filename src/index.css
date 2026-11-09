@@ -519,6 +519,52 @@ textarea {
   font-size: 1.25rem;
 }
 
+/* 命令表: one figure per row with the command it carries; the global reorder
+   is set apart below. Wide screens fold the column in half. */
+.question__commands {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.question__cmd-half {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-1) var(--space-4);
+  align-items: center;
+}
+
+@media (min-width: 720px) {
+  .question__cmd-half {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.question__cmd-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.question__cmd {
+  display: inline-block;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  font-size: 0.875rem;
+}
+
+.question__cmd-global {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.question__cmd-global .question__cmd {
+  border-style: dashed;
+  border-color: var(--accent);
+}
+
 .question__blank {
   display: grid;
   place-items: center;

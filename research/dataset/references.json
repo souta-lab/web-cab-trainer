@@ -1,1 +1,271 @@
-[{"distractorTypes": ["wrong-position", "wrong-rotation", "partial-rule"], "estimatedDifficulty": 2, "id": "reference-001", "notes": "回転+移動の2-rule合成。構造抽出のみ", "objects": ["circle", "arrow"], "properties": ["position", "rotation"], "ruleCount": 2, "rules": [{"cycle": "corners-clockwise", "target": "circle", "type": "move"}, {"degreesPerStep": 90, "target": "arrow", "type": "rotate"}], "section": "pattern", "sourceId": "port-19patterns", "structure": {"choices": 5, "frames": 5, "missingIndex": 2}}, {"distractorTypes": ["forgot-fill", "partial-rule"], "estimatedDifficulty": 2, "id": "reference-002", "notes": "塗り反転+回転。2-rule", "objects": ["square", "marker"], "properties": ["fill", "rotation"], "ruleCount": 2, "rules": [{"target": "square", "type": "fill-toggle"}, {"degreesPerStep": 90, "target": "marker", "type": "rotate"}], "section": "pattern", "sourceId": "reashu-hosoku20", "structure": {"choices": 5, "frames": 5, "missingIndex": 3}}, {"distractorTypes": ["prev-state", "single-command"], "estimatedDifficulty": 2, "id": "reference-003", "notes": "回転+塗りの命令列", "objects": ["triangle"], "properties": ["rotation", "fill"], "ruleCount": 2, "rules": [{"command": "Rotate90", "type": "rotate"}, {"command": "ToggleFill", "type": "fill-toggle"}], "section": "commands", "sourceId": "port-meirei-10", "structure": {"choices": 5, "commands": 2, "frames": 2}}, {"distractorTypes": ["partial-rule", "forgot-fill"], "estimatedDifficulty": 3, "id": "reference-004", "notes": "回転+色変換の暗号", "objects": ["arrow", "circle"], "properties": ["rotation", "fill"], "ruleCount": 2, "rules": [{"degrees": 90, "type": "rotation"}, {"type": "fill-inversion"}], "section": "cipher", "sourceId": "port-ango-5", "structure": {"choices": 5, "examples": 2}}, {"distractorTypes": ["sign-error", "order-of-operations"], "estimatedDifficulty": 1, "id": "reference-005", "notes": "2演算の逆算。x先行生成の典型", "objects": [], "properties": [], "ruleCount": 1, "rules": [{"ops": 2, "template": "ax+b=c", "type": "linear"}], "section": "arithmetic", "sourceId": "paiza-webcab-practice", "structure": {"choices": 5, "operands": 3}}, {"distractorTypes": ["wrong-rotation", "off-by-one-step", "reverse-direction"], "estimatedDifficulty": 1, "id": "reference-006", "notes": "単一回転ルール", "objects": ["arrow"], "properties": ["rotation"], "ruleCount": 1, "rules": [{"degreesPerStep": 90, "type": "rotate"}], "section": "pattern", "sourceId": "studypro-hosoku", "structure": {"choices": 5, "frames": 4, "missingIndex": 2}}, {"distractorTypes": ["reverse-order", "forgot-toggle"], "estimatedDifficulty": 3, "id": "reference-007", "notes": "3命令の合成。取消系を含む", "objects": ["square", "dot"], "properties": ["rotation", "fill", "count"], "ruleCount": 3, "rules": [{"command": "FlipH", "type": "flip"}, {"command": "MoveMarker", "type": "move"}, {"command": "ToggleFill", "type": "fill-toggle"}], "section": "commands", "sourceId": "studypro-meirei", "structure": {"choices": 5, "commands": 3, "frames": 2}}, {"distractorTypes": ["single-object", "prev-state"], "estimatedDifficulty": 3, "id": "reference-008", "notes": "内外交換+回転の複合暗号", "objects": ["circle-outer", "triangle-inner"], "properties": ["inside-outside", "rotation"], "ruleCount": 2, "rules": [{"type": "inside-outside"}, {"degrees": 180, "type": "rotation"}], "section": "cipher", "sourceId": "studypro-ango", "structure": {"choices": 5, "examples": 2}}, {"distractorTypes": ["inverse-error", "near-value"], "estimatedDifficulty": 2, "id": "reference-009", "notes": "小数を含む3演算", "objects": [], "properties": [], "ruleCount": 1, "rules": [{"decimals": true, "ops": 3, "type": "linear"}], "section": "arithmetic", "sourceId": "digmedia-312986", "structure": {"choices": 5, "operands": 4}}, {"distractorTypes": ["wrong-position", "partial-rule", "forgot-fill"], "estimatedDifficulty": 3, "id": "reference-010", "notes": "3-rule合成: 移動+回転+塗り", "objects": ["circle", "arrow", "square"], "properties": ["position", "rotation", "fill"], "ruleCount": 3, "rules": [{"cycle": "corners-clockwise", "type": "move"}, {"degreesPerStep": 90, "type": "rotate"}, {"type": "fill-toggle"}], "section": "pattern", "sourceId": "studypro-hosoku", "structure": {"choices": 5, "frames": 5, "missingIndex": 4}}, {"distractorTypes": ["sign-error", "order-of-operations"], "estimatedDifficulty": 2, "id": "reference-011", "notes": "括弧付き逆算", "objects": [], "properties": [], "ruleCount": 1, "rules": [{"ops": 2, "parens": true, "type": "linear"}], "section": "arithmetic", "sourceId": "eslook-cab", "structure": {"choices": 5, "operands": 3}}, {"distractorTypes": ["next-state", "wrong-rotation"], "estimatedDifficulty": 2, "id": "reference-012", "notes": "交互変化+個数増減", "objects": ["dot"], "properties": ["count", "alternation"], "ruleCount": 2, "rules": [{"type": "count-inc"}, {"type": "alternation"}], "section": "pattern", "sourceId": "reashu-hosoku20", "structure": {"choices": 5, "frames": 5, "missingIndex": 1}}]
+[
+  {
+    "id": "reference-001",
+    "sourceId": "paiza-webcab-practice",
+    "section": "arithmetic",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 1,
+    "rules": [
+      {
+        "type": "transpose",
+        "form": "□×a=b−c",
+        "unknownPosition": "left-first",
+        "numericType": "integer"
+      }
+    ],
+    "distractorTypes": ["rhs-as-answer", "inverted-op", "sign-slip"],
+    "structure": { "choices": 5, "form": "rhs-expression" },
+    "estimatedDifficulty": 2,
+    "notes": "右辺が式（b−c）になる逆算。右辺評価→移項の順。構造抽出のみ。"
+  },
+  {
+    "id": "reference-002",
+    "sourceId": "port-arithmetic-245007",
+    "section": "arithmetic",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 1,
+    "rules": [
+      {
+        "type": "inverse-op",
+        "form": "a÷□=b",
+        "unknownPosition": "divisor",
+        "numericType": "integer"
+      }
+    ],
+    "distractorTypes": ["inverted-op", "decimal-shift"],
+    "structure": { "choices": 5, "form": "divisor-unknown" },
+    "estimatedDifficulty": 2,
+    "notes": "未知数が除数側に来る型。割り切れ条件の設計が必要。"
+  },
+  {
+    "id": "reference-003",
+    "sourceId": "eslook-cab",
+    "section": "arithmetic",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 2,
+    "rules": [
+      {
+        "type": "distribute",
+        "form": "□×(a−b)=c",
+        "unknownPosition": "left-first"
+      },
+      {
+        "type": "paren-as-block",
+        "form": "(□+a)×b−c=d",
+        "unknownPosition": "inside-parens"
+      }
+    ],
+    "distractorTypes": ["dropped-bracket-postfix", "precedence-slip"],
+    "structure": { "choices": 5, "form": "paren-form" },
+    "estimatedDifficulty": 3,
+    "notes": "括弧を1ブロックとして捉える型。分配展開の要否で難易度が変わる。"
+  },
+  {
+    "id": "reference-004",
+    "sourceId": "digmedia-312986",
+    "section": "arithmetic",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 2,
+    "rules": [
+      {
+        "type": "integerize",
+        "form": "□×(1/2+1/3)=c",
+        "numericType": "fraction"
+      },
+      {
+        "type": "reduce",
+        "form": "□÷a×1/3=2^3",
+        "unknownPosition": "two-occurrences"
+      }
+    ],
+    "distractorTypes": ["lcm-slip", "decimal-shift"],
+    "structure": { "choices": 5, "form": "fraction-form" },
+    "estimatedDifficulty": 3,
+    "notes": "分数・通分・累乗を含む難関型。整数化してから逆算する。"
+  },
+  {
+    "id": "reference-005",
+    "sourceId": "port-19patterns",
+    "section": "pattern",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 2,
+    "rules": [
+      { "type": "rotation", "degreesPerStep": 90 },
+      { "type": "movement-corner-cycle" }
+    ],
+    "objects": ["arrow", "marker"],
+    "properties": ["orientation", "position"],
+    "distractorTypes": ["wrong-orientation", "wrong-position"],
+    "structure": { "choices": 5, "frames": 5, "missingIndex": 2 },
+    "estimatedDifficulty": 2,
+    "notes": "回転+角移動の2-rule合成。フレームは5、欠落は中間。"
+  },
+  {
+    "id": "reference-006",
+    "sourceId": "reashu-hosoku20",
+    "section": "pattern",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 1,
+    "rules": [{ "type": "movement-reciprocal" }],
+    "objects": ["circle"],
+    "properties": ["position"],
+    "distractorTypes": ["wrong-position"],
+    "structure": { "choices": 5, "frames": 5, "missingIndex": 1 },
+    "estimatedDifficulty": 2,
+    "notes": "往復（行って戻る）移動。前後関係の読み違いを突く典型。"
+  },
+  {
+    "id": "reference-007",
+    "sourceId": "studypro-hosoku",
+    "section": "pattern",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 2,
+    "rules": [{ "type": "color-invert" }, { "type": "size-alternate" }],
+    "objects": ["square", "dot"],
+    "properties": ["color", "size"],
+    "distractorTypes": ["wrong-color", "wrong-size"],
+    "structure": { "choices": 5, "frames": 5, "missingIndex": 3 },
+    "estimatedDifficulty": 2,
+    "notes": "塗り反転+大小交互。1属性ずつ確認する型。"
+  },
+  {
+    "id": "reference-008",
+    "sourceId": "port-hosoku-248318",
+    "section": "pattern",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 3,
+    "rules": [
+      { "type": "rotation-increasing" },
+      { "type": "count-increase" },
+      { "type": "inside-outside" }
+    ],
+    "objects": ["triangle", "dot"],
+    "properties": ["orientation", "count", "inside-outside"],
+    "distractorTypes": ["wrong-orientation", "wrong-count", "wrong-shape"],
+    "structure": { "choices": 5, "frames": 5, "missingIndex": 4 },
+    "estimatedDifficulty": 3,
+    "notes": "3-rule合成。同時4個は難関帯のみで、現行share splitには含まれない。"
+  },
+  {
+    "id": "reference-009",
+    "sourceId": "port-meirei-10",
+    "section": "commands",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 2,
+    "rules": [{ "type": "flip-v" }, { "type": "flip-h" }],
+    "objects": ["figure-column"],
+    "properties": ["orientation"],
+    "distractorTypes": ["axis-swap", "wrong-neighbour"],
+    "structure": { "choices": 5, "figures": 4, "commands": 3, "figuresPlusOne": true },
+    "estimatedDifficulty": 2,
+    "notes": "上下反転+左右反転。軸の取り違えが主誤答。"
+  },
+  {
+    "id": "reference-010",
+    "sourceId": "noahs-ark-instruction",
+    "section": "commands",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 2,
+    "rules": [{ "type": "delete-prev" }, { "type": "flip-180" }],
+    "objects": ["figure-column"],
+    "properties": ["count", "orientation"],
+    "distractorTypes": ["double-blank", "unapplied-flip"],
+    "structure": { "choices": 5, "figures": 4, "commands": 4, "figuresPlusOne": true },
+    "estimatedDifficulty": 2,
+    "notes": "削除+180度反転。削除対象が消えている場合の二重空白に注意。"
+  },
+  {
+    "id": "reference-011",
+    "sourceId": "jitsumu-pdf",
+    "section": "commands",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 2,
+    "rules": [
+      { "type": "cancel-prev-command" },
+      { "type": "swap-prev", "mnemonic": "G" }
+    ],
+    "objects": ["figure-column"],
+    "properties": ["orientation", "position"],
+    "distractorTypes": ["post-cancel-flip", "wrong-neighbour"],
+    "structure": { "choices": 5, "figures": 4, "commands": 5, "figuresPlusOne": true },
+    "estimatedDifficulty": 3,
+    "notes": "取消→削除→反転→入替→順序入替の順で解決する。"
+  },
+  {
+    "id": "reference-012",
+    "sourceId": "careerpark-meirei-106765",
+    "section": "commands",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 2,
+    "rules": [{ "type": "reorder", "variant": "R" }, { "type": "delete-next" }],
+    "objects": ["figure-column"],
+    "properties": ["position", "count"],
+    "distractorTypes": ["wrong-permutation", "double-blank"],
+    "structure": { "choices": 5, "figures": 3, "commands": 4, "figuresPlusOne": true },
+    "estimatedDifficulty": 3,
+    "notes": "順序入替R（1..n→逆順）+次削除。命令数は図形数+1が典型。"
+  },
+  {
+    "id": "reference-013",
+    "sourceId": "studypro-ango",
+    "section": "cipher",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 2,
+    "rules": [
+      { "type": "rotation", "degrees": 90, "direction": "cw" },
+      { "type": "invert-fill" }
+    ],
+    "objects": ["arrow", "circle"],
+    "properties": ["orientation", "color"],
+    "distractorTypes": ["partial-application", "gamma-delta-swap"],
+    "structure": { "choices": 5, "examples": 1, "linkedQuestions": 3 },
+    "estimatedDifficulty": 2,
+    "notes": "1つの暗号図+3連動設問ブロック。規則はブロック内でのみ有効。"
+  },
+  {
+    "id": "reference-014",
+    "sourceId": "port-ango-5",
+    "section": "cipher",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 1,
+    "rules": [{ "type": "inside-outside" }],
+    "objects": ["circle-outer", "triangle-inner"],
+    "properties": ["inside-outside"],
+    "distractorTypes": ["partial-application", "transcription-slip"],
+    "structure": { "choices": 5, "examples": 1, "linkedQuestions": 3 },
+    "estimatedDifficulty": 1,
+    "notes": "内外入替の単一規則。位置関係の読み取りが中心。"
+  },
+  {
+    "id": "reference-015",
+    "sourceId": "reashu-angou",
+    "section": "cipher",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 2,
+    "rules": [{ "type": "scale" }, { "type": "shape-replace" }],
+    "objects": ["square", "triangle"],
+    "properties": ["size", "shape"],
+    "distractorTypes": ["assumed-rule", "bad-inverse"],
+    "structure": { "choices": 5, "examples": 1, "linkedQuestions": 3 },
+    "estimatedDifficulty": 3,
+    "notes": "大小変換+図形置換。例示から言えない規則を仮定すると誤る。"
+  },
+  {
+    "id": "reference-016",
+    "sourceId": "careerpark-34858",
+    "section": "cipher",
+    "tag": "UNOFFICIAL",
+    "ruleCount": 3,
+    "rules": [
+      { "type": "move" },
+      { "type": "count-increase" },
+      { "type": "rotation", "degrees": 180 }
+    ],
+    "objects": ["arrow", "dot"],
+    "properties": ["position", "count", "orientation"],
+    "distractorTypes": ["non-commutative-order-error", "partial-application"],
+    "structure": { "choices": 5, "examples": 2, "linkedQuestions": 3 },
+    "estimatedDifficulty": 3,
+    "notes": "連鎖長3。適用順序が結果を変える非可換な合成。"
+  }
+]

@@ -14,7 +14,7 @@ import { DIFFICULTIES } from '../domain/types';
 import type { Difficulty } from '../domain/types';
 
 export type RuleCount = 1 | 2 | 3;
-export type CommandLengthBucket = '1-2' | '3-4' | '5+';
+export type CommandFigureCount = 2 | 3 | 4;
 export type CipherComposition = 'single' | 'multi';
 export type ArithmeticFlavor = 'decimal' | 'integer';
 
@@ -37,20 +37,41 @@ export const PATTERN_RULE_COUNT_WEIGHTS: Record<Difficulty, WeightedTable<RuleCo
   ],
 };
 
-/** commands sequence length per difficulty. Aggregate = 30 / 50 / 20. */
-export const COMMAND_LENGTH_WEIGHTS: Record<Difficulty, WeightedTable<CommandLengthBucket>> = {
+/** commands column height per difficulty. Aggregate ≈ 3% / 9% / 88%. */
+export const COMMAND_FIGURE_COUNT_WEIGHTS: Record<Difficulty, WeightedTable<CommandFigureCount>> = {
   1: [
-    ['1-2', 85],
-    ['3-4', 15],
+    [4, 85],
+    [3, 12],
+    [2, 3],
   ],
   2: [
-    ['1-2', 5],
-    ['3-4', 85],
-    ['5+', 10],
+    [4, 90],
+    [3, 8],
+    [2, 2],
   ],
   3: [
-    ['3-4', 50],
-    ['5+', 50],
+    [4, 93],
+    [3, 6],
+    [2, 1],
+  ],
+};
+
+/**
+ * Probability that a column carries `figureCount + 1` commands, one of them the
+ * appended global reorder. Aggregate = 80% (research: figures+1 is typical).
+ */
+export const COMMAND_COUNT_WEIGHTS: Record<Difficulty, readonly [boolean, number][]> = {
+  1: [
+    [true, 72],
+    [false, 28],
+  ],
+  2: [
+    [true, 80],
+    [false, 20],
+  ],
+  3: [
+    [true, 88],
+    [false, 12],
   ],
 };
 
@@ -99,8 +120,14 @@ export function samplePatternRuleCount(rng: Rng, difficulty: Difficulty): RuleCo
   return pickWeighted(rng, PATTERN_RULE_COUNT_WEIGHTS[difficulty]);
 }
 
-export function sampleCommandLength(rng: Rng, difficulty: Difficulty): CommandLengthBucket {
-  return pickWeighted(rng, COMMAND_LENGTH_WEIGHTS[difficulty]);
+export function sampleCommandFigureCount(rng: Rng, difficulty: Difficulty): CommandFigureCount {
+  return pickWeighted(rng, COMMAND_FIGURE_COUNT_WEIGHTS[difficulty]);
+}
+
+/** Commands are `figureCount + 1` (reorder appended) or `figureCount`, never fewer than 2. */
+export function sampleCommandCount(rng: Rng, difficulty: Difficulty, figureCount: number): number {
+  const overflow = pickWeighted(rng, COMMAND_COUNT_WEIGHTS[difficulty]);
+  return Math.max(2, overflow ? figureCount + 1 : figureCount);
 }
 
 export function sampleCipherComposition(rng: Rng, difficulty: Difficulty): CipherComposition {
@@ -113,7 +140,9 @@ export function sampleArithmeticDecimal(rng: Rng, difficulty: Difficulty): boole
 
 export interface ExpectedShares {
   patternRuleCount: Record<RuleCount, number>;
-  commandLength: Record<CommandLengthBucket, number>;
+  commandFigureCount: Record<CommandFigureCount, number>;
+  /** Share of columns with a global reorder command appended (figureCount+1). */
+  commandOverflow: number;
   cipherComposition: Record<CipherComposition, number>;
   arithmeticDecimal: number;
 }
@@ -121,7 +150,8 @@ export interface ExpectedShares {
 /** Research targets. Tests compare sampled/aggregated shares against these. */
 export const EXPECTED_SHARES: ExpectedShares = {
   patternRuleCount: { 1: 0.25, 2: 0.58, 3: 0.17 },
-  commandLength: { '1-2': 0.3, '3-4': 0.5, '5+': 0.2 },
+  commandFigureCount: { 2: 0.02, 3: 0.08667, 4: 0.89333 },
+  commandOverflow: 0.8,
   cipherComposition: { single: 0.65, multi: 0.35 },
   arithmeticDecimal: 0.13,
 };
@@ -134,7 +164,7 @@ export function expectedShares(): ExpectedShares {
  * Average a weight table across the three difficulties (uniform difficulty).
  * Used by tests to prove the tables actually aggregate to the targets.
  */
-export function aggregateTable<T extends string>(tables: readonly WeightedTable<T>[]): Map<T, number> {
+export function aggregateTable<T>(tables: readonly WeightedTable<T>[]): Map<T, number> {
   const sums = new Map<T, number>();
   for (const table of tables) {
     const total = table.reduce((sum, [, weight]) => sum + weight, 0);

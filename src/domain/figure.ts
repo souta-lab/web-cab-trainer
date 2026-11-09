@@ -180,6 +180,52 @@ function applyOne(state: FigState, op: Primitive): FigState {
       if (i >= 0) objects.splice(i, 1);
       break;
     }
+    case 'flipVAt': {
+      const target = objects[op.index];
+      if (target) {
+        target.rot = normalizeRot(target.rot + 180);
+        target.flipH = !target.flipH;
+      }
+      break;
+    }
+    case 'flipHAt': {
+      const target = objects[op.index];
+      if (target) target.flipH = !target.flipH;
+      break;
+    }
+    case 'flip180At': {
+      const target = objects[op.index];
+      if (target) target.rot = normalizeRot(target.rot + 180);
+      break;
+    }
+    case 'deleteAt':
+      if (op.index >= 0 && op.index < objects.length) objects.splice(op.index, 1);
+      break;
+    case 'swapWithPrevAt': {
+      const a = objects[op.index];
+      const b = objects[op.index - 1];
+      if (a && b) {
+        const ax = a.x;
+        const ay = a.y;
+        a.x = b.x;
+        a.y = b.y;
+        b.x = ax;
+        b.y = ay;
+      }
+      break;
+    }
+    case 'reorder': {
+      if (op.order.length !== objects.length) break;
+      const reordered: FigObj[] = [];
+      for (let i = 0; i < op.order.length; i++) {
+        const source = objects[op.order[i]];
+        const slot = objects[i];
+        if (!source || !slot) break;
+        reordered.push({ ...source, x: slot.x, y: slot.y });
+      }
+      if (reordered.length === objects.length) return { objects: reordered, markerPos };
+      break;
+    }
     default:
       return assertNever(op);
   }

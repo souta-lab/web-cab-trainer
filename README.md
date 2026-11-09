@@ -25,7 +25,8 @@ src/
     types.ts           Problem/Attempt/Settings等の型（strict・unknown/any禁止）
     rng.ts             seedable PRNG (mulberry32+xmur3) + pickWeighted
     figure.ts          図形変換の唯一のインタプリタ applyPrimitives / figureKey
-    recipe.ts          算術AST（evaluate/solve/render/verifyArith）+ rule→Primitive展開
+    arith.ts           算術AST（evaluate/solve/render/verifyArith）
+    recipe.ts          rule→Primitive展開（命令語彙・reorder順列・算術を再輸出）
     invariants.ts      validateProblem: 問題の不変条件を検査
     labels.ts          科目の日本語ラベル
   generators/
@@ -64,14 +65,14 @@ research/
 
 - **四則逆算**: 正解 `unknownValue` を含む `ArithRecipe`（AST）を生成し、`render(recipe)` で表示、`solve(recipe)` で正解を代数的に逆算する。表示文字列を手書きしないため式と答えが乖離しない。0除算・NaN/Infinity 禁止、`verifyArith` で自己検証。
 - **法則性**: `start`（角に主図形＋点）に規則（回転/移動/塗り反転/反転）を1ステップ適用した `ops` を作り、5フレームを `applyPrimitives` で構築。誤答は部分適用・隣接フレーム・逆回転など規則由来のみ（サイズ誤魔化し無し）。
-- **命令表**: 命令列を `expandCommand`→`Primitive` に展開し `applyPrimitives` で適用。`RemoveDot` を含む全9命令が到達可能。誤答は逆順・最終命令抜き・逆回転・開始状態。
+- **命令表**: 2〜4個（約9割が4個）の図形を縦に並べ、各図形に命令を1つ付けた「命令列」を上から順に適用する。命令は実データの語彙（上下反転・左右反転・上下左右反転・前/次の図形を消す・前の図形と入れかえ・前/次の命令を取り消す・順序入れかえR/S/J の全11種）。取消は先に解決し（取消の取消で元に戻る連鎖）、削除で縮む列に合わせて各命令の対象indexを実行時に決める（`simulatePlan` 相当は `executePlan`）。図形数より命令が多いときは末尾に全域の順序入れかえが1つ付く。誤答は調査した誤り型（二重消し・反転の適用漏れ・誤った順序入れかえ・取消の無視・隣の削除・軸の取り違え）を、実際にそのプランを再実行して生成する。
 - **暗号**: 真の規則を `CipherRule` として保持し、例A→出力A を提示。入力を「全規則が可視」になるよう構成し、部分適用・逆順適用を誤答にする。
 - 全generatorは決定的。誤答は `figureKey` で重複排除し、必ず5択（正解は1つ）。`validateProblem` が全問で空を返すことをテストで保証。
 
 ## 出題分布（`src/generators/policy.ts` が根拠）
 
 - pattern: 1-rule 25% / 2-rule 58% / 3-rule 17%
-- commands長: 1-2: 30% / 3-4: 50% / 5+: 20%
+- commands: 図形数 2/3/4 ≈ 2% / 9% / 89%（4個が約9割）、命令数は図形数+1が約80%（残りは図形数と同数、下限2）
 - cipher: single 65% / multi 35%
 - arithmetic: 小数 ≈13%
 - 難易度別の重みを持ち、難易度一様混合で上記globalに一致するよう設計。`tests/integration.test.ts` が実生成の分布を許容誤差内で検証する。
@@ -94,6 +95,7 @@ research/
 
 - `domain.test.ts` — 図形変換の純粋性/正規化、算術recipeの逆算、policy分布、不変条件の負例
 - `arithmetic|pattern|commands|cipher.prop.test.ts` — 各生成器の不変条件・決定性・到達可能性・分布
+- `commandPlan.test.ts` — 命令表の取消解決（連鎖含む）・命令数ポリシー聚合
 - `storage.test.ts` — v1→v2 migration（`problem`除去）・スキーマ検証・クランプ
 - `stats.prop.test.ts` — 集計/適応/弱点/ペース
 - `quizHelpers.test.ts` — 難易度解決・模試集計
