@@ -752,3 +752,47 @@ textarea {
     padding: var(--space-4);
   }
 }
+
+/* ============================================================
+   Family layer — s0u7a properties shared discipline.
+   ポートフォリオ／QUESTと共通の基盤: 書体スタック、見出しの字間、
+   モノスペースのラベル、選択色、フォーカス表現。
+   このアプリの配色とテーマ（light/dark）はそのまま維持する。
+   ============================================================ */
+:root {
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans",
+    "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", Meiryo, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.brand {
+  letter-spacing: -0.05em;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.04em;
+  text-wrap: pretty;
+}
+
+::selection {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.meta {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+}
+
+.question {
+  line-height: 1.9;
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 3px;
+}
