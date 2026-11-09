@@ -105,10 +105,6 @@ export function visualKey(s: FigState): string {
   return JSON.stringify([s.objects.map(objectAppearance), markerSlotShown(s)]);
 }
 
-export function visuallyEqual(a: FigState, b: FigState): boolean {
-  return visualKey(a) === visualKey(b);
-}
-
 export function mainObject(s: FigState): FigObj | undefined {
   const [first] = s.objects;
   return first;
