@@ -1,8 +1,43 @@
-# Web-CAB Trainer（非公式・独立練習ツール）
+<div align="center">
 
-本サイトはWeb-CAB形式の能力検査対策を目的とした**非公式の独立練習ツール**です。実際の試験問題を収録・複製するものではありません。SHL等の問題・画像・文章・UIは使用していません。
+# 🧩 Web-CAB Trainer
 
-## 起動方法
+### Web-CAB形式の能力検査を、ブラウザだけで練習する
+
+全問題を手続き的に生成するから、解くたびに新しい問題。
+**四則逆算・法則性・命令表・暗号** の4科目対応。
+
+![React](https://img.shields.io/badge/React-20232a?logo=react&logoColor=61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript_strict-3178C6?logo=typescript&logoColor=fff)
+![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=fff)
+![Vitest](https://img.shields.io/badge/Vitest-6E9F18?logo=vitest&logoColor=fff)
+![backend](https://img.shields.io/badge/backend-none_|_localStorage_only-111111)
+
+</div>
+
+> ⚠️ **非公式の独立練習ツールです。** 実際の試験問題を収録・複製するものではありません。SHL等の問題・画像・文章・UIは使用していません。
+
+## ✨ 特徴
+
+- 🧩 **4科目すべて生成式** — 四則逆算は算術ASTから、法則性は図形変換プリミティブから、命令表は命令列の実行から、暗号は規則オブジェクトから生成。正解は必ず生成過程から再導出でき、式と答えが乖離しない
+- 🎲 **seed再現100%** — `generateProblem(subject, seed, difficulty)` は記録された (seed, 難易度) から常に同一問題を再生成。間違い復習とseed共有の基盤
+- 📈 **適応難易度と弱点分析** — 成績から難易度を調整し、科目別の弱点とペースを集計
+- ↩️ **間違い再挑戦** — 間違えた問題を個別／まとめて解き直し
+- 💾 **バックエンド不要** — ログイン不要・広告なし。データはlocalStorageのみ（versioned migration付き）
+- ♿ **アクセシビリティ** — キーボードショートカット、LiveRegion読み上げ、light/dark、文字サイズ拡大
+
+## 📚 対応科目
+
+| 科目 | 生成の仕組み |
+| --- | --- |
+| 🔢 四則逆算 | 正解を含む算術AST（recipe）を生成し、代数的に逆算して採点 |
+| 🔷 法則性 | 図形＋点に規則（回転・移動・反転等）を適用した5フレームから欠落を当てる |
+| 📋 命令表 | 2〜4個の図形への命令列（全11種、取消の連鎖解決つき）を上から順に実行 |
+| 🔐 暗号 | 真の規則を保持し、例A→出力Aから入力Bへの適用を問う |
+
+---
+
+## 🚀 起動方法
 
 ```bash
 cd web-cab-app
@@ -17,7 +52,7 @@ npm run dev
 
 Firefox最新版・デスクトップPCを第一ターゲット。Chrome専用API不使用。ログイン不要・広告なし・バックエンド不要。データはlocalStorageのみ。
 
-## Architecture
+## 🏗 Architecture
 
 ```
 src/
@@ -53,7 +88,7 @@ research/
   dataset/references.json  report.md  coverage.md
 ```
 
-## 設計原則
+## 📐 設計原則
 
 - **契約を凍結**: `domain/*` が唯一の真実源。generator・storage・UI はここに依存する。
 - **生成と採点の一致**: 図形は `applyPrimitives(start, ops)` だけが変換を解釈する。Problem は機械検証可能な `start`/`ops`（算術は `recipe`）を保持し、正解は必ずそこから再導出できる。
@@ -61,7 +96,7 @@ research/
 - **分布は policy.ts が唯一の真実源**: テストも research 集計も README の数値ではなく `policy.ts` を参照する。
 - **永続化は versioned migration**: `Persisted.version`（現在 2）に基づき v1→v2 を実装。壊れたデータは例外を投げず空にフォールバック。
 
-## Generatorの仕組み
+## ⚙️ Generatorの仕組み
 
 - **四則逆算**: 正解 `unknownValue` を含む `ArithRecipe`（AST）を生成し、`render(recipe)` で表示、`solve(recipe)` で正解を代数的に逆算する。表示文字列を手書きしないため式と答えが乖離しない。0除算・NaN/Infinity 禁止、`verifyArith` で自己検証。
 - **法則性**: `start`（角に主図形＋点）に規則（回転/移動/塗り反転/反転）を1ステップ適用した `ops` を作り、5フレームを `applyPrimitives` で構築。誤答は部分適用・隣接フレーム・逆回転など規則由来のみ（サイズ誤魔化し無し）。
@@ -69,7 +104,7 @@ research/
 - **暗号**: 真の規則を `CipherRule` として保持し、例A→出力A を提示。入力を「全規則が可視」になるよう構成し、部分適用・逆順適用を誤答にする。
 - 全generatorは決定的。誤答は `figureKey` で重複排除し、必ず5択（正解は1つ）。`validateProblem` が全問で空を返すことをテストで保証。
 
-## 出題分布（`src/generators/policy.ts` が根拠）
+## 📊 出題分布（`src/generators/policy.ts` が根拠）
 
 - pattern: 1-rule 25% / 2-rule 58% / 3-rule 17%
 - commands: 図形数 2/3/4 ≈ 2% / 9% / 89%（4個が約9割）、命令数は図形数+1が約80%（残りは図形数と同数、下限2）
@@ -77,19 +112,19 @@ research/
 - arithmetic: 小数 ≈13%
 - 難易度別の重みを持ち、難易度一様混合で上記globalに一致するよう設計。`tests/integration.test.ts` が実生成の分布を許容誤差内で検証する。
 
-## アクセシビリティ / キーボード
+## ♿ アクセシビリティ / キーボード
 
 - `1〜5`: 選択肢回答（`aria-keyshortcuts`）
 - `Enter/Space`: 次へ
 - `P`: 一時停止（練習モードのみ）
 - 入力欄フォーカス中はショートカットを無効化。回答結果は `LiveRegion` で読み上げ、TimeAttackの残り時間は 60/30/10 秒で通知。`autoFocus` に依存せず、フォーカスは問題コンテナへ移動。light/dark 両対応、`--font-scale` で文字サイズ拡大。
 
-## 追加機能
+## ➕ 追加機能
 
 - **間違い再挑戦**: 間違い一覧から個別／まとめて解き直し。正解すると間違いから除外。
 - **エクスポート/インポート**: 学習履歴と設定をJSONで保存・復元（seed共有・バックアップ用途）。
 
-## テスト
+## ✅ テスト
 
 `tests/` は固定seedレンジの property-based 検証（依存追加なし・完全決定的）:
 
