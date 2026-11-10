@@ -1,5 +1,11 @@
 # Coverage Matrix（調査語彙 vs 実装）
 
+> **2026-11-10 追記（リライト後の commands / cipher の現行状態）**: 下表の commands / cipher 行はリライト前の generator を基準にしており、現行実装とは乖離している。2026-11-10 に現行コードで再検証した結果は次のとおり。
+>
+> - **commands**: 全11命令（FlipV / FlipH / Flip180 / DeletePrev / DeleteNext / SwapPrev / CancelPrevCommand / CancelNextCommand / ReorderR / ReorderS / ReorderJ）を実装。図形は縦列 2〜4 個、命令数は図形数または図形数+1（末尾の全体 reorder）。取消は `resolveCommandPlan` が固定点まで事前解決し（取消の取消で解放される連鎖を含む）、その後に削除→反転→入替→順序入替を live な配列へ逐次適用する。かつての MISMATCH（rotation / fill-toggle / move / add-dot を命令として実装）は解消され、命令は位置指定プリミティブのみで構成される。誤答選択肢は plan 変異（double-blank / unapplied-flip / wrong-permutation（R・S・J 取り違え含む） / post-cancel-flip / wrong-neighbour / axis-swap）を実 start へ再生して作る。
+> - **cipher**: 規則は rotation / fill / flip / inside-outside / move / add-dot の6種、合成は1〜3規則。例A→出力A の順方向推論のみで、逆算型・4連鎖・groupB（shift / substitute / reverse / numbering）・scale・count増減・shape-replace は引き続き未実装。
+> - **テスト**: `tests/commands.prop.test.ts` / `tests/cipher.prop.test.ts` / `tests/commandPlan.test.ts` に加え、`tests/integration.test.ts` が全科目の生成・全11命令と全6規則の到達可能性・分布を検証。全142テスト合格、`npm run build` / `npm run lint` クリーンを 2026-11-10 に確認。
+>
 > 基準: `research/taxonomy.json`（2026-09-14版、語彙訂正済み）。Generator列は `src/generators/*` と `src/domain/*` の実装、Tests列は `tests/*.prop.test.ts` と `tests/integration.test.ts` の有無。
 > 凡例: **YES** = 実装/テストあり、**PARTIAL** = 近接実装（語彙または意味がずれる）、**NO** = 未実装、**MISMATCH** = 調査結果と逆の実装、**N/A** = 対象外。
 > 注: Testsは生成器単位の不変条件・分布テストの有無を示す。個別規則ごとのテストではない。
